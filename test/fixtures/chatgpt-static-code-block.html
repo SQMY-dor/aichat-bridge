@@ -1,0 +1,18 @@
+<!-- Reduced from the user's supplied outerHTML, 2026-10-17. -->
+<div data-d-component="box" data-d-direction="col">
+  <p data-d-component="text"><span data-d-default-strong>第一步：查看 Windows 可靠性记录</span></p>
+  <p>按 <code data-d-component="code"><span>Win </span><span>+ </span><span>R</span></code>，输入：</p>
+  <div class="CodeBlock-zu1QM3">
+    <div data-code-block="true" data-markdown-copy="code-block" data-theme="dark">
+      <div data-markdown-copy="exclude" contenteditable="false"><div class="min-w-0 flex-1 truncate">纯文本</div><div data-code-block-controls="true"><button aria-label="启用自动换行"></button><button aria-label="复制代码"></button></div></div>
+      <div data-code-block-source="true" class="whitespace-pre" dir="ltr"><code class="whitespace-pre! block text-size-code CodeContent-ybJ8Tl min-w-max"><span><span>perfmon /rel</span></span></code></div>
+    </div>
+  </div>
+  <p>寻找 <code>Application Hang</code>、<code>AppHangB1</code> 等记录。</p>
+  <p><span data-d-default-strong>第三步：测试关闭 GPU 加速</span></p>
+  <div data-code-block="true" data-markdown-copy="code-block" data-theme="dark">
+    <div data-markdown-copy="exclude" contenteditable="false"><div class="min-w-0 flex-1 truncate">纯文本</div><button aria-label="复制代码"></button></div>
+    <div data-code-block-source="true" class="whitespace-pre" dir="ltr"><code class="whitespace-pre! block"><span><span>--disable-gpu</span></span></code></div>
+  </div>
+  <p>重新运行相似任务，观察是否仍会冻结。</p>
+</div>

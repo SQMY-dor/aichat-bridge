@@ -1,0 +1,116 @@
+<!doctype html><meta charset="utf-8"><title>Qwen completion regression</title><main><div id="chat-message-container"><div class="qwen-chat-message-select-turn"><div class="qwen-chat-message-user"><div class="chat-user-message-container" data-msg-id="user-1" data-chat-id="fixture-conversation"><div class="chat-user-message"><div class="chunked-text-renderer-root"><p class="user-message-content">Question</p></div></div></div></div><div class="qwen-chat-message-assistant"><div class="chat-response-message" id="chat-response-message-answer-1"><div class="response-message-content phase-thinking">PRIVATE THOUGHT</div><div class="response-message-content phase-answer"><div class="custom-qwen-markdown"><div class="qwen-markdown"><p>Completed answer</p></div></div></div><div class="response-message-footer"><div class="qwen-chat-package-comp-new-action-control" data-msg-id="answer-1" data-chat-id="fixture-conversation"><button class="qwen-chat-package-comp-new-action-control-container-copy" aria-label="复制"></button><button class="qwen-chat-package-comp-new-action-control-container-regenerate" aria-label="重新生成"></button></div></div></div></div></div></div><div class="message-input-container"><div class="message-input-column-file"><div class="file-card-list"></div></div><div class="message-input-container-area"><textarea class="message-input-textarea"></textarea></div><div class="message-input-column-footer"><input id="filesUpload" multiple="" aria-label="上传文件" type="file" style="display:none"><div class="message-input-right-button-send"><button class="send-button" aria-label="发送"><svg><use xlink:href="#qwpcicon-sendChat"></use></svg></button></div></div></div></main>
+<script type="module">
+import * as dom from '/extension/qwen-dom.js';
+// Run under the fixture conversation URL, with every request fulfilled locally.
+const original = document.querySelector('main').outerHTML;
+const results = [];
+function check(value, message) { if (!value) throw new Error(message); }
+try {
+  for (const kind of ['xlink', 'href', 'namespace-prefix', 'stop', 'unknown', 'missing-icon', 'stop-label', 'missing-footer', 'busy', 'wrong-footer']) {
+    document.querySelector('main').outerHTML = original;
+    const button = document.querySelector('.send-button'), icon = button.querySelector('use');
+    icon.removeAttribute('xlink:href');
+    if (kind === 'href') icon.setAttribute('href', '#qwpcicon-sendChat');
+    else icon.setAttributeNS('http://www.w3.org/1999/xlink', kind === 'namespace-prefix' ? 'link:href' : 'xlink:href', kind === 'stop' ? '#qwpcicon-stop' : kind === 'unknown' ? '#unknown' : '#qwpcicon-sendChat');
+    if (kind === 'missing-icon') icon.remove();
+    if (kind === 'stop-label') button.setAttribute('aria-label', '停止');
+    if (kind === 'missing-footer') document.querySelector('.response-message-footer').remove();
+    if (kind === 'busy') document.querySelector('.phase-answer').setAttribute('aria-busy', 'true');
+    if (kind === 'wrong-footer') document.querySelector('.response-message-footer > div').dataset.msgId = 'other';
+    button.disabled = true;
+    const baseline = { users: new Set(), assistants: new Set(), imageSources: new Set(), lastUserKey: null };
+    const submitted = dom.findSubmittedUser(document, baseline, 'Question');
+    const idle = ['xlink', 'href', 'namespace-prefix'].includes(kind);
+    const generating = ['stop', 'unknown', 'missing-icon', 'stop-label'].includes(kind);
+    check(dom.generating(document) === generating, kind + ': wrong generating state');
+    const result = dom.finalCandidate(document, baseline, submitted);
+    check(idle ? result?.text === 'Completed answer' : result === null, kind + ': wrong completion');
+    let ready = false; try { dom.assertReady(document); ready = true; } catch (error) { if (!(error instanceof dom.PageSafetyError)) throw error; }
+    check(ready === idle, kind + ': wrong readiness');
+    check(dom.sendButton(document, dom.composer(document)) === null, kind + ': disabled button selectable');
+    if (idle) { button.disabled = false; check(dom.sendButton(document, dom.composer(document)) === button, kind + ': enabled send missing'); }
+    results.push(kind);
+  }
+  document.querySelector('main').outerHTML = original;
+  const body = document.querySelector('.chunked-text-renderer-root');
+  const baseline = { users: new Set(), assistants: new Set(), imageSources: new Set(), lastUserKey: null };
+  for (const partial of ['', '1', '12']) {
+    body.textContent = partial;
+    check(dom.findSubmittedUser(document, baseline, '123') === null, 'partial prompt must wait');
+  }
+  body.textContent = '123';
+  const submitted = dom.findSubmittedUser(document, baseline, '123');
+  check(dom.finalCandidate(document, baseline, submitted)?.text === 'Completed answer', 'full prompt matches');
+  body.textContent = '124';
+  let rejected = false; try { dom.finalCandidate(document, baseline, submitted); } catch { rejected = true; }
+  check(rejected, 'edited confirmed prompt must be rejected');
+  results.push('prompt-chunks-and-edit');
+
+  document.querySelector('main').outerHTML = original;
+  const deferredBody = document.querySelector('.chunked-text-renderer-root');
+  deferredBody.parentElement.style.contentVisibility = 'hidden';
+  check(deferredBody.textContent === 'Question' && deferredBody.innerText === '', 'reproduce Chromium deferred innerText');
+  const deferredSnapshot = { users: new Set(), assistants: new Set(), imageSources: new Set(), lastUserKey: null };
+  const deferredUser = dom.findSubmittedUser(document, deferredSnapshot, 'Question');
+  check(Boolean(deferredUser), 'deferred prompt DOM matches without forcing rendering');
+  check(dom.finalCandidate(document, deferredSnapshot, deferredUser)?.text === 'Completed answer', 'completed answer remains owned');
+  deferredBody.insertAdjacentHTML('beforeend', '<span hidden>Other text</span>');
+  let changedPromptRejected = false;
+  try { dom.finalCandidate(document, deferredSnapshot, deferredUser); } catch { changedPromptRejected = true; }
+  check(changedPromptRejected, 'unknown hidden prompt content cannot authorize another answer');
+  results.push('deferred-prompt-dom');
+
+  const bytes = new Uint8Array(await (await fetch('/test-source.png')).arrayBuffer());
+  const payload = { mimeType: 'image/png', base64: btoa(String.fromCharCode(...bytes)) };
+  for (const count of [1, 4]) {
+    document.querySelector('main').outerHTML = original;
+    const input = dom.composer(document), field = document.querySelector('#filesUpload');
+    const names = []; let events = 0, latestImage;
+    field.addEventListener('change', () => {
+      events++;
+      const file = field.files[0]; check(file instanceof File && file.size === bytes.length, 'native file payload');
+      const card = document.createElement('div'); card.className = 'vision-item-container';
+      card.innerHTML = '<img class="vision-item-image"><button class="close-button" style="visibility:hidden"></button>';
+      latestImage = card.querySelector('img'); latestImage.alt = file.name;
+      latestImage.src = 'https://qwen-webui-prod.oss-accelerate.aliyuncs.com/test/upload_' + file.name;
+      document.querySelector('.file-card-list').append(card); field.value = '';
+    });
+    for (let index = 1; index <= count; index++) {
+      const name = 'bridge-audit-' + index + '.png';
+      dom.attachInputImage(document, input, payload, name); names.push(name);
+      await latestImage.decode();
+      check(dom.inputAttachmentState(input, names).ready, 'native upload ready');
+    }
+    check(events === count, 'one file change per image');
+    const replacement = input.cloneNode(true); input.replaceWith(replacement);
+    check(dom.refreshComposer(document, input) === replacement, 'same composer remount');
+    check(dom.inputAttachmentState(replacement, names).ready, 'remounted upload still owned');
+    dom.insertPrompt(document, replacement, 'describe\nimages');
+    check(dom.composerText(replacement) === 'describe\nimages', 'textarea multiline');
+    dom.releaseInputImages(replacement);
+    check(!dom.inputAttachmentState(replacement, names).ready, 'released images cannot be reused');
+    results.push('native-upload-' + count + '-remount');
+  }
+  for (const count of [1, 4]) {
+    document.querySelector('main').outerHTML = original;
+    const answer = document.querySelector('.qwen-markdown'), images = [];
+    for (let index = 1; index <= count; index++) {
+      const image = document.createElement('img');
+      image.src = `https://qwen-webui-prod.oss-accelerate.aliyuncs.com/test/upload_bridge-audit-${index}.png`;
+      answer.append(image); images.push(image);
+    }
+    await Promise.all(images.map(image => image.decode()));
+    const snapshot = { users: new Set(), assistants: new Set(), imageSources: new Set(), lastUserKey: null };
+    const user = dom.findSubmittedUser(document, snapshot, 'Question');
+    const result = dom.finalCandidate(document, snapshot, user);
+    check(result.images.length === count, 'all answer images selected');
+    for (const [index, image] of result.images.entries()) {
+      check(image.src === images[index].src, 'answer image order');
+      const read = await dom.readAnswerImage(image);
+      check(read.base64 === payload.base64 && read.mimeType === 'image/png', 'answer image bytes');
+    }
+    results.push('answer-image-read-' + count);
+  }
+  window.regressionResult = { passed: results.length, cases: results };
+} catch (error) { window.regressionResult = { error: error.stack, passed: results.length }; }
+</script>

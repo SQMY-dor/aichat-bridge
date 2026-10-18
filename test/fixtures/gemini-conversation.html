@@ -1,0 +1,41 @@
+<!doctype html>
+<!-- Sanitized structural fixture observed in Gemini's web UI, October 2026.
+     The synthetic text/turn ids replace the live conversation. -->
+<main>
+  <div class="conversation-container message-actions-hover-boundary" id="0000000000000001">
+    <user-query>
+      <user-query-content>
+        <h5 class="cdk-visually-hidden screen-reader-user-query-label">Earlier question</h5>
+        <div class="query-text"><p class="query-text-line">Earlier question</p></div>
+      </user-query-content>
+    </user-query>
+    <model-response>
+      <response-container>
+        <div class="response-content">
+          <model-response-content><structured-content-container>
+            <thinking-overlay><div>PRIVATE EARLIER THOUGHT</div></thinking-overlay>
+            <message-content id="message-content-id-r_0000000000000001">
+              <div class="markdown markdown-main-panel" id="model-response-message-contentr_0000000000000001" aria-busy="false"><p>Earlier answer</p></div>
+            </message-content>
+          </structured-content-container></model-response-content>
+          <div class="response-footer gap complete"></div>
+        </div>
+      </response-container>
+      <response-container-footer><message-actions>
+        <copy-button><button aria-label="複製回覆">Copy</button></copy-button>
+        <regenerate-button><div data-test-id="regenerate-button"><button>Retry</button></div></regenerate-button>
+      </message-actions></response-container-footer>
+    </model-response>
+  </div>
+</main>
+<input-area-v2>
+  <div data-node-type="input-area">
+    <fieldset class="input-area-fieldset">
+      <rich-textarea>
+        <div class="ql-editor" contenteditable="true" role="textbox" aria-label="請輸入 Gemini 提示詞"><p><br></p></div>
+        <div class="ql-clipboard" contenteditable="true" tabindex="-1" aria-hidden="true"></div>
+      </rich-textarea>
+      <div data-test-id="send-button-container"><gem-icon-button class="send-button has-input submit" aria-disabled="false"><button aria-label="傳送訊息"><mat-icon>arrow_upward</mat-icon></button></gem-icon-button></div>
+    </fieldset>
+  </div>
+</input-area-v2>

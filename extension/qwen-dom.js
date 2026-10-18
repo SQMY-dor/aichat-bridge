@@ -1,0 +1,321 @@
+import { normalizeText, conversationUrl } from './shared.js';
+import {
+  PageSafetyError, visible, composerText, insertPrompt, markdownText as sharedMarkdown,
+  validateInputImages, decodeImagePayload, MAX_IMAGES, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES,
+} from './dom.js';
+export { PageSafetyError, visible, composerText, insertPrompt, validateInputImages, MAX_IMAGES, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES };
+
+// Observed on the international chat.qwen.ai UI. Keep input, public answer,
+// action footer and attachment boundaries separate from sidebars and editors.
+const COMPOSER = 'textarea.message-input-textarea';
+const SCOPE = '.message-input-container';
+const SEND = '.message-input-right-button-send button.send-button';
+const ROW = '.qwen-chat-message-select-turn';
+const USER = '.qwen-chat-message-user .chat-user-message-container[data-msg-id]';
+const ASSISTANT = '.qwen-chat-message-assistant .chat-response-message[id^="chat-response-message-"]';
+const BODY = '.response-message-content.phase-answer > .custom-qwen-markdown > .qwen-markdown';
+const FOOTER = '.response-message-footer .qwen-chat-package-comp-new-action-control[data-msg-id][data-chat-id]';
+const ATTACHMENT = '.message-input-column-file > .file-card-list > .vision-item-container';
+const uploads = new WeakMap();
+const enabled = node => visible(node) && !node.disabled && !node.matches(':disabled') && node.getAttribute('aria-disabled') !== 'true' && !node.closest('[inert], [aria-disabled="true"]');
+function chatId(doc) { return conversationUrl(doc.location.href, 'qwen')?.split('/').at(-1); }
+function assertNoDialog(doc) {
+  if ([...doc.querySelectorAll('[role="dialog"], [aria-modal="true"], #challenge-running, #challenge-stage, iframe[src*="challenges.cloudflare.com"]')].some(visible)) throw new PageSafetyError('Qwen 有待处理的登录、验证或对话框，请先在网页处理');
+}
+export function composerScope(input) { return input?.closest(SCOPE) || null; }
+export function composer(doc) {
+  const inputs = [...doc.querySelectorAll(COMPOSER)].filter(visible);
+  if (!inputs.length) throw new PageSafetyError('暂未找到 Qwen 输入框，等待网页加载');
+  if (inputs.length > 1) throw new PageSafetyError('检测到多个可见的 Qwen 输入框，暂不自动操作');
+  const input = inputs[0], scope = composerScope(input);
+  if (!scope || scope.querySelectorAll(COMPOSER).length !== 1 || scope.querySelector(`${USER}, ${ASSISTANT}`)) throw new PageSafetyError('Qwen 输入区结构已变化，已停止自动操作');
+  if (!enabled(input) || input.readOnly) throw new PageSafetyError('Qwen 输入框当前不可用');
+  return input;
+}
+export function composerInteraction(target, input) {
+  return Boolean(target?.closest && (target.closest(COMPOSER) || (input && composerScope(input)?.contains(target)) || target.closest(SEND)));
+}
+function hasSendIcon(button) {
+  // Chromium parses SVG xlink:href in the XLink namespace. An escaped colon
+  // attribute selector does not match it, even though it can pass in JSDOM.
+  return [...button.querySelectorAll('use')].some(icon =>
+    (icon.getAttribute('href') || icon.getAttributeNS('http://www.w3.org/1999/xlink', 'href') || icon.getAttribute('xlink:href')) === '#qwpcicon-sendChat');
+}
+function sendControl(doc) {
+  const inputs = [...doc.querySelectorAll(COMPOSER)].filter(visible);
+  if (inputs.length !== 1) return null;
+  const buttons = [...composerScope(inputs[0])?.querySelectorAll(SEND) || []].filter(visible);
+  // During generation Qwen reuses its send area. Require the actual send icon,
+  // not merely the absence of a stop button or a stable response string.
+  return buttons.length === 1 && hasSendIcon(buttons[0]) ? buttons[0] : null;
+}
+export function generating(doc) {
+  const scope = [...doc.querySelectorAll(SCOPE)].find(visible);
+  return Boolean(scope && [...scope.querySelectorAll('.message-input-right-button-send button')].filter(visible).some(button =>
+    /stop|停止|中止/i.test(button.getAttribute('aria-label') || button.className) || !hasSendIcon(button) && button.matches('.send-button')));
+}
+export function turns(doc, role) {
+  const selector = role === 'user' ? USER : ASSISTANT;
+  return [...doc.querySelectorAll('#chat-message-container ' + selector)].filter(node => (role === 'user' || visible(node)) && !node.parentElement?.closest(selector));
+}
+function rowOf(message) {
+  const row = message?.closest(ROW);
+  if (!row || row.querySelectorAll(USER).length !== 1 || row.querySelectorAll(ASSISTANT).length > 1) return null;
+  return row;
+}
+function key(message) {
+  const id = message.matches(USER) ? message.getAttribute('data-msg-id') : message.id.slice('chat-response-message-'.length);
+  return `${message.matches(USER) ? 'user' : 'assistant'}:${id}`;
+}
+function unique(message) {
+  const role = message.matches(USER) ? 'user' : 'assistant';
+  return turns(message.ownerDocument, role).filter(node => key(node) === key(message)).length === 1;
+}
+function userText(message, { pending = false } = {}) {
+  const bodies = message.querySelectorAll('.chat-user-message > .chunked-text-renderer-root');
+  // Qwen mounts the durable row before its chunked prompt renderer. Only the
+  // initial confirmation may wait; final answer ownership remains strict.
+  if (pending && bodies.length === 0) return null;
+  if (bodies.length !== 1) throw new PageSafetyError('Qwen 用户消息结构已变化，已停止转发');
+  // Chromium may return empty innerText for an unrendered subtree (for
+  // example content-visibility), even when this plain prompt is in the DOM.
+  // Read only the verified prompt root structurally, keeping P/BR boundaries
+  // and exact matching. Never substitute the entire row or an answer's text.
+  return normalizeText(composerText(bodies[0].cloneNode(true)));
+}
+function publicBodies(message) {
+  return [...message.querySelectorAll(BODY)].filter(node => visible(node) && node.closest(ASSISTANT) === message);
+}
+function completed(message) {
+  if (!rowOf(message) || !unique(message) || !publicBodies(message).length || generating(message.ownerDocument) || !sendControl(message.ownerDocument)) return false;
+  if ([...message.querySelectorAll('[role="alert"], [aria-busy="true"]')].some(visible)) return false;
+  const footers = [...message.querySelectorAll(FOOTER)].filter(node => visible(node) && node.closest(ASSISTANT) === message);
+  if (footers.length !== 1 || footers[0].getAttribute('data-msg-id') !== message.id.slice('chat-response-message-'.length) || footers[0].getAttribute('data-chat-id') !== chatId(message.ownerDocument)) return false;
+  return ['copy', 'regenerate'].every(action => [...footers[0].querySelectorAll(`button.qwen-chat-package-comp-new-action-control-container-${action}`)].filter(enabled).length === 1);
+}
+export function snapshot(doc) {
+  const users = turns(doc, 'user');
+  return { users: new Set(users.map(key)), lastUserKey: users.length ? key(users.at(-1)) : null, assistants: new Set(turns(doc, 'assistant').map(key)), imageSources: new Set([...doc.querySelectorAll('img')].map(image => image.currentSrc || image.src).filter(Boolean)) };
+}
+export function newUsers(doc, baseline) {
+  let users = turns(doc, 'user');
+  if (baseline.users.size) {
+    const anchors = users.filter(node => key(node) === baseline.lastUserKey);
+    if (anchors.length !== 1) throw new PageSafetyError('原有 Qwen 用户消息基准已消失或重复，无法确认新消息范围');
+    users = users.slice(users.indexOf(anchors[0]) + 1);
+  }
+  return users.filter(node => !baseline.users.has(key(node)));
+}
+export function findSubmittedUser(doc, baseline, prompt) {
+  const users = newUsers(doc, baseline);
+  if (users.length > 1) throw new PageSafetyError('检测到其他新消息，已停止转发，避免混淆回复');
+  if (!users.length) return null;
+  const user = users[0];
+  if (!rowOf(user) || !unique(user) || user.getAttribute('data-chat-id') !== chatId(doc)) throw new PageSafetyError('Qwen 新消息归属无法确认，已停止转发');
+  const expected = normalizeText(prompt), actual = userText(user, { pending: true });
+  // The chunked renderer can briefly contain no text or just the beginning of
+  // the submitted prompt. Wait within content.js's existing confirmation
+  // deadline, never claim this row or its answer until the whole text matches.
+  if (actual === null || (actual !== expected && expected.startsWith(actual))) return null;
+  if (actual !== expected) throw new PageSafetyError('新增网页消息与本次群消息不同，已停止转发');
+  baseline.submittedText = normalizeText(prompt); return user;
+}
+export function submissionWaitReason(doc, baseline, prompt) {
+  const users = newUsers(doc, baseline);
+  if (!users.length) return 'Qwen 尚未出现可识别的新提问';
+  if (users.length !== 1) return 'Qwen 出现多个新提问';
+  const actual = userText(users[0], { pending: true });
+  if (actual === null) return 'Qwen 提问正文尚未挂载';
+  // Diagnostics contain only lengths and fixed labels, no prompt text or IDs.
+  return `Qwen 提问正文尚未完整（已识别 ${actual.length}/${normalizeText(prompt).length} 字符）`;
+}
+export function hasAttachments(input) {
+  const scope = composerScope(input); if (!scope) return true;
+  return [...scope.querySelectorAll('input[type="file"]')].some(field => field.files?.length) ||
+    [...scope.querySelectorAll('.file-card-list > *, img, [role="progressbar"], [aria-busy="true"]')].some(visible);
+}
+export function assertReady(doc) {
+  assertNoDialog(doc);
+  if (generating(doc)) throw new PageSafetyError('该对话正在生成回复，请等待完成');
+  const lastUser = turns(doc, 'user').at(-1), lastAnswer = turns(doc, 'assistant').at(-1);
+  if (lastUser && (!rowOf(lastUser) || !lastAnswer || rowOf(lastUser) !== rowOf(lastAnswer) || !completed(lastAnswer))) throw new PageSafetyError('上一条 Qwen 网页提问尚未明确完成，请先在网页处理');
+  const input = composer(doc);
+  if (hasAttachments(input)) throw new PageSafetyError('输入区存在附件或正在上传，本次不会发送');
+  if (normalizeText(composerText(input))) throw new PageSafetyError('输入框有草稿，本次不会覆盖草稿');
+  return input;
+}
+export function sendButton(doc, input) {
+  if (composer(doc) !== input) throw new PageSafetyError('Qwen 输入框已被替换，已停止发送');
+  const button = sendControl(doc); return enabled(button) ? button : null;
+}
+function fileInput(input) {
+  const fields = composerScope(input)?.querySelectorAll('input[type="file"]');
+  const field = fields?.[0];
+  if (fields?.length !== 1 || !field.matches('#filesUpload[multiple]') || field.disabled || field.matches(':disabled') || field.closest('[inert], [aria-disabled="true"]')) throw new PageSafetyError('Qwen 文件上传入口不可用或不唯一，已停止上传');
+  return field;
+}
+export function attachInputImage(doc, input, payload, name) {
+  if (composer(doc) !== input || !/^[A-Za-z0-9._-]{1,150}$/.test(name)) throw new PageSafetyError('无法确认 Qwen 图片输入目标');
+  const records = uploads.get(input) || new Map();
+  if (records.has(name) || normalizeText(composerText(input)) || !inputAttachmentState(input, [...records.keys()]).ready) throw new PageSafetyError('Qwen 输入区存在未确认附件或草稿，已停止上传');
+  const win = doc.defaultView, bytes = decodeImagePayload(payload.mimeType, payload.base64);
+  if (typeof win.DataTransfer !== 'function') throw new PageSafetyError('当前浏览器不支持图片文件输入');
+  const scope = composerScope(input), field = fileInput(input), transfer = new win.DataTransfer();
+  const file = new win.File([bytes], name, { type: payload.mimeType }); transfer.items.add(file);
+  records.set(name, { file, scope, card: null, src: null, beforeCards: new Set(scope.querySelectorAll(ATTACHMENT)), beforeSources: new Set([...scope.querySelectorAll('img')].map(x => x.currentSrc || x.src)) }); uploads.set(input, records);
+  field.files = transfer.files;
+  if (field.files?.length !== 1 || field.files[0] !== file) throw new PageSafetyError('Qwen 文件选择发生变化，已停止上传');
+  // Qwen consumes the file input's change event and clears the FileList.
+  field.dispatchEvent(new win.Event('change', { bubbles: true }));
+}
+export function refreshComposer(doc, input) {
+  if (input.isConnected) return input;
+  const records = uploads.get(input); const originalScope = records?.values().next().value?.scope;
+  if (!records?.size || !originalScope?.isConnected) return input;
+  const current = composer(doc);
+  if (composerScope(current) !== originalScope || normalizeText(composerText(current))) throw new PageSafetyError('Qwen 上传后输入区被替换或出现草稿，已停止发送');
+  // Only a layout replacement within the same owned composer during upload
+  // can inherit the attachment ledger. Never recover an arbitrary new editor.
+  uploads.set(current, records); uploads.delete(input); return current;
+}
+export function inputAttachmentState(input, names) {
+  assertNoDialog(input.ownerDocument);
+  const scope = composerScope(input), records = uploads.get(input);
+  if (!scope || new Set(names).size !== names.length || [...records?.keys() || []].some(name => !names.includes(name))) throw new PageSafetyError('无法确认本次 Qwen 图片附件');
+  if (!names.length) return { ready: !hasAttachments(input) };
+  if ([...scope.querySelectorAll('[role="alert"]')].some(visible)) throw new PageSafetyError('Qwen 报告图片上传失败，已停止发送');
+  if ([...scope.querySelectorAll('[role="progressbar"], [aria-busy="true"], .ant-spin-spinning')].some(visible)) return { ready: false, reason: 'uploading' };
+  const cards = [...scope.querySelectorAll(ATTACHMENT)].filter(visible);
+  if (!cards.length) return { ready: false, reason: 'no-attachment' };
+  if (cards.length !== names.length || [...scope.querySelectorAll('.file-card-list > *, img')].filter(visible).some(node => !cards.some(card => node === card || card.contains(node)))) return { ready: false, reason: 'name-mismatch' };
+  const matched = new Set();
+  for (const name of names) {
+    const record = records?.get(name); if (!record || record.scope !== scope) return { ready: false, reason: 'name-mismatch' };
+    if (record.card && !scope.contains(record.card)) throw new PageSafetyError('本次 Qwen 图片附件被移除，已停止发送');
+    const matches = cards.filter(card => !record.beforeCards.has(card) && card.querySelector('img.vision-item-image')?.getAttribute('alt') === name);
+    if (matches.length !== 1 || matched.has(matches[0])) return { ready: false, reason: 'name-mismatch' };
+    const card = matches[0], images = card.querySelectorAll('img'); const image = images[0]; matched.add(card);
+    if (images.length !== 1 || !visible(image) || card.querySelectorAll('button.close-button').length !== 1) return { ready: false, reason: 'name-mismatch' };
+    const src = image.currentSrc || image.src;
+    if (record.card && (record.card !== card || record.src !== src)) throw new PageSafetyError('本次 Qwen 图片附件被替换，已停止发送');
+    let source; try { source = new URL(src); } catch {}
+    // A loaded remote object with the exact task filename proves the native
+    // upload reached Qwen storage. A local blob preview alone is not enough.
+    if (source?.origin !== 'https://qwen-webui-prod.oss-accelerate.aliyuncs.com') return { ready: false, reason: 'uploading' };
+    let path; try { path = decodeURIComponent(source.pathname); } catch { return { ready: false, reason: 'name-mismatch' }; }
+    if (!path.endsWith('_' + name) || record.beforeSources.has(src)) return { ready: false, reason: 'name-mismatch' };
+    if (!image.complete || !image.naturalWidth || !image.naturalHeight) return { ready: false, reason: 'uploading' };
+    record.card = card; record.src = src;
+  }
+  const field = fileInput(input);
+  if ([...(field.files || [])].some(file => ![...records.values()].some(record => record.file === file))) throw new PageSafetyError('Qwen 文件选择包含本次任务之外的附件');
+  return { ready: matched.size === names.length };
+}
+export function releaseInputImages(input) { uploads.delete(input); }
+
+function codeText(block) {
+  const body = block.querySelector('.qwen-markdown-code-body');
+  const editors = body?.querySelectorAll('.monaco-editor[role="code"]');
+  const fail = () => new PageSafetyError('Qwen 代码未完整展开或结构已变化，已停止转发不完整代码；请在网页展开代码');
+  if (!body || !visible(body) || editors?.length !== 1 || block.querySelector('[aria-expanded="false"]')) throw fail();
+  const editor = editors[0], views = editor.querySelectorAll('.view-lines'), view = views[0];
+  const lines = view ? [...view.children] : [];
+  const numbers = [...editor.querySelectorAll('.margin-view-overlays .line-numbers')];
+  const totalHeight = Number.parseFloat(view?.style.height);
+  if (views.length !== 1 || !lines.length || numbers.length !== lines.length || !Number.isFinite(totalHeight) || totalHeight <= 0) throw fail();
+  let offset = 0;
+  for (const [index, line] of lines.entries()) {
+    const top = Number.parseFloat(line.style.top), height = Number.parseFloat(line.style.height);
+    if (!line.matches('.view-line') || !Number.isFinite(top) || !Number.isFinite(height) || height <= 0 || Math.abs(top - offset) > 0.5 || numbers[index].textContent.trim() !== String(index + 1) || line.querySelector('.mtkoverflow, .view-zone')) throw fail();
+    offset += height;
+  }
+  // Do not return only Monaco's currently virtualized viewport.
+  const scrollbars = [...editor.querySelectorAll('.scrollbar.vertical')];
+  if (Math.abs(offset - totalHeight) > 0.5 || !scrollbars.length || scrollbars.some(bar => !bar.classList.contains('invisible') && Number.parseFloat(bar.querySelector('.slider')?.style.height) < Number.parseFloat(bar.style.height))) throw fail();
+  const language = block.querySelector('.qwen-markdown-code-header > div')?.textContent.trim() || '';
+  return { text: lines.map(line => line.textContent.replace(/\u00a0/g, ' ')).join('\n'), language };
+}
+export function markdownText(body) {
+  const clone = body.cloneNode(true), originals = [...body.querySelectorAll('*')], copies = [...clone.querySelectorAll('*')];
+  const replacements = [...body.querySelectorAll('pre.qwen-markdown-code')].map(block => ({ node: copies[originals.indexOf(block)], ...codeText(block) }));
+  originals.forEach((node, index) => { if (!visible(node) && !node.closest('pre.qwen-markdown-code')) copies[index].remove(); });
+  for (const { node, text, language } of replacements) {
+    const code = clone.ownerDocument.createElement('code'); code.textContent = text;
+    if (/^[a-zA-Z0-9_+#.-]{1,40}$/.test(language)) code.className = 'language-' + language.toLowerCase();
+    node.replaceChildren(code);
+  }
+  // Qwen paragraphs use DIV, whereas the shared renderer suppresses generic
+  // code toolbar wrappers. Give genuine prose its semantic paragraph boundary.
+  for (const node of clone.querySelectorAll('.qwen-markdown-paragraph')) {
+    const p = clone.ownerDocument.createElement('p'); p.append(...node.childNodes); node.replaceWith(p);
+  }
+  return sharedMarkdown(clone);
+}
+export function answerImageSource(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'blob:' && url.origin === 'https://chat.qwen.ai') return url.href;
+    if (url.protocol === 'https:' && ['chat.qwen.ai', 'qwen-webui-prod.oss-accelerate.aliyuncs.com'].includes(url.hostname) && !url.port && !url.username && !url.password) return url.href;
+  } catch {}
+  throw new PageSafetyError('本次 Qwen 回复图片的来源不受支持，未读取或转发图片');
+}
+export function finalCandidate(doc, baseline, previousUser) {
+  const users = newUsers(doc, baseline);
+  if (users.length !== 1 || key(users[0]) !== key(previousUser) || !unique(users[0]) || userText(users[0]) !== baseline.submittedText || users[0].getAttribute('data-chat-id') !== chatId(doc)) throw new PageSafetyError('对话出现其他消息或内容被替换，停止转发');
+  const user = users[0], row = rowOf(user);
+  if (!row) throw new PageSafetyError('Qwen 本轮消息结构发生变化，已停止转发');
+  const following = turns(doc, 'assistant').filter(message => !baseline.assistants.has(key(message)) && (user.compareDocumentPosition(message) & 4));
+  if (following.some(message => [...message.querySelectorAll('[role="alert"]')].some(visible))) throw new PageSafetyError('Qwen 网页回复失败，请在网页处理；本次不会重新提问');
+  if (following.length !== 1 || rowOf(following[0]) !== row || !completed(following[0])) return null;
+  const message = following[0], bodies = publicBodies(message), images = [], seen = new Set(); let skippedImages = 0;
+  for (const body of bodies) {
+    if ([...body.querySelectorAll('canvas')].some(node => visible(node) && !node.closest('pre.qwen-markdown-code'))) throw new PageSafetyError('Qwen 回复包含无法读取的画布，请在网页查看');
+    for (const image of body.querySelectorAll('img')) {
+      if (!visible(image)) continue;
+      const source = image.currentSrc || image.src;
+      if (seen.has(source) || baseline.imageSources.has(source)) continue; seen.add(source);
+      let src; try { src = answerImageSource(source); } catch { skippedImages++; continue; }
+      if (!image.complete) return null;
+      if (!image.naturalWidth || !image.naturalHeight) throw new PageSafetyError('Qwen 回复图片未正常加载');
+      images.push({ src, width: image.naturalWidth, height: image.naturalHeight });
+      if (images.length > MAX_IMAGES) throw new PageSafetyError('本次回复超过 4 张图片，请在网页查看完整结果');
+    }
+  }
+  let text = bodies.map(markdownText).filter(Boolean).join('\n\n');
+  if (skippedImages) text += `${text ? '\n\n' : ''}（${skippedImages} 张外部来源配图未转发，请在 Qwen 网页查看。）`;
+  return text || images.length ? { message, text, images, skippedImages } : null;
+}
+
+export async function readAnswerImage(image, { fetchImpl = globalThis.fetch, timeoutMs = 15000 } = {}) {
+  const source = answerImageSource(image.src); const controller = new AbortController();
+  let reader; let timer;
+  const timeout = new Promise((_, reject) => { timer = setTimeout(() => {
+    controller.abort(); reader?.cancel().catch(() => {});
+    reject(new PageSafetyError('读取本次 Qwen 回复图片超时，请在网页查看'));
+  }, timeoutMs); });
+  try {
+    return await Promise.race([timeout, (async () => {
+      const response = await fetchImpl(source, { signal: controller.signal, credentials: 'omit', redirect: 'error', cache: 'no-store', referrerPolicy: 'no-referrer' });
+      if (!response.ok || !response.body?.getReader) throw new PageSafetyError('无法读取本次 Qwen 回复图片，请在网页确认图片可以打开');
+      const mimeType = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+      if (!['image/png', 'image/jpeg', 'image/webp'].includes(mimeType)) throw new PageSafetyError('图片格式不支持，仅支持 PNG、JPEG 和 WebP');
+      if (Number(response.headers.get('content-length')) > MAX_IMAGE_BYTES) throw new PageSafetyError('单张图片超过 10 MB，请在网页查看原图');
+      reader = response.body.getReader(); const chunks = []; let size = 0;
+      while (true) {
+        const { done, value } = await reader.read(); if (done) break;
+        size += value.byteLength;
+        if (size > MAX_IMAGE_BYTES) throw new PageSafetyError('单张图片超过 10 MB，请在网页查看原图');
+        chunks.push(value);
+      }
+      const bytes = new Uint8Array(size); let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+      let binary = '';
+      for (let start = 0; start < bytes.length; start += 32768) binary += String.fromCharCode(...bytes.subarray(start, start + 32768));
+      const base64 = btoa(binary); decodeImagePayload(mimeType, base64);
+      return { mimeType, base64, byteLength: bytes.length };
+    })()]);
+  } catch (error) {
+    if (error instanceof PageSafetyError) throw error;
+    throw new PageSafetyError('无法读取本次 Qwen 回复图片，可能是图片访问受限或连接中断；未转发空图片');
+  } finally { clearTimeout(timer); controller.abort(); reader?.cancel().catch(() => {}); }
+}

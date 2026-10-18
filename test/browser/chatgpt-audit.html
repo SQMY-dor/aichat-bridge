@@ -1,0 +1,142 @@
+<!doctype html><meta charset="utf-8"><title>ChatGPT DOM browser regression</title>
+<script type="module">
+import * as dom from '/extension/dom.js';
+const results = [];
+function check(value, message) { if (!value) throw new Error(message); }
+function page(history = '') {
+  document.body.innerHTML = `<main>${history}</main><form><div id="prompt-textarea" contenteditable="true" role="textbox"></div><button data-testid="send-button">Send</button></form>`;
+  return document;
+}
+const modernTurn = body => `<div data-turn-key="test-turn"><div data-talvt-turn-state="complete"><div data-chatgpt-search-unit-key="test:0:user" data-chatgpt-search-message-ids="user-id"><div data-user-message-bubble="true"><p>first line</p><p>second line</p></div><button>Not message text</button></div><div data-chatgpt-search-unit-key="test:0:assistant" data-chatgpt-search-message-ids="answer-id"><div data-markdown-text-style="assistant-message">${body}</div></div><div class="turn-action-controls"><button aria-label="Copy">Copy</button></div></div></div>`;
+const legacyTurn = '<article data-testid="conversation-turn-user"><div data-message-author-role="user" data-message-id="user"><div class="whitespace-pre-wrap">question</div></div></article><article data-testid="conversation-turn-answer"><div data-message-author-role="assistant" data-message-id="answer"><div class="markdown">answer</div></div><button data-testid="copy-turn-action-button">Copy</button></article>';
+try {
+  page(); const input = dom.composer(document); const edits = [];
+  input.addEventListener('input', event => edits.push({ type: event.inputType, trusted: event.isTrusted }));
+  dom.insertPrompt(document, input, 'first line\nsecond line');
+  check(edits.length > 0 && edits.every(event => event.trusted), 'native text insertion must not add synthetic duplicate input events: ' + JSON.stringify(edits));
+  check(dom.composerText(input).replace(/\s+/g, ' ').trim() === 'first line second line', 'native multiline input changed');
+  results.push('native-text-input-event');
+
+  const clone = document.createElement('div'); clone.innerHTML = '<p>first line</p><p>second line<br>third line</p>';
+  check(dom.composerText(clone) === 'first line\nsecond line\nthird line', 'detached multiline text lost boundaries');
+  results.push('detached-multiline-text');
+
+  page(); const pendingBaseline = dom.snapshot(document);
+  document.querySelector('main').innerHTML = modernTurn('<p>answer</p>');
+  const userBody = document.querySelector('[data-user-message-bubble="true"]');
+  const userParent = userBody.parentElement; userBody.remove();
+  check(dom.findSubmittedUser(document, pendingBaseline, 'first line\nsecond line') === null, 'action controls cannot become the pending user text');
+  userParent.prepend(userBody);
+  userBody.replaceChildren();
+  check(dom.findSubmittedUser(document, pendingBaseline, 'first line\nsecond line') === null, 'empty user message must remain unowned');
+  await new Promise(resolve => requestAnimationFrame(resolve));
+  userBody.innerHTML = '<p>first line</p><p>second line</p>';
+  check(dom.findSubmittedUser(document, pendingBaseline, 'first line\nsecond line'), 'user text after rendering must match');
+  userBody.textContent = 'different';
+  let mismatch = false; try { dom.findSubmittedUser(document, pendingBaseline, 'first line\nsecond line'); } catch (error) { mismatch = /不同/.test(error.message); }
+  check(mismatch, 'different user text must remain rejected');
+  results.push('user-message-before-text');
+
+  for (const kind of ['modern-complete', 'modern-disabled', 'modern-hidden', 'modern-inert', 'legacy-complete', 'legacy-disabled', 'legacy-hidden', 'legacy-inert', 'streaming', 'literal-challenge', 'real-challenge']) {
+    page(); const baseline = dom.snapshot(document); const modern = !kind.startsWith('legacy');
+    document.querySelector('main').innerHTML = modern ? modernTurn(kind === 'literal-challenge' ? '<p>cloudflare_challenge</p>' : '<p>answer</p>') : legacyTurn;
+    const user = dom.findSubmittedUser(document, baseline, modern ? 'first line\nsecond line' : 'question');
+    const copy = document.querySelector('.turn-action-controls button, [data-testid="copy-turn-action-button"]');
+    if (kind.endsWith('-disabled')) copy.disabled = true;
+    if (kind.endsWith('-hidden')) copy.hidden = true;
+    if (kind.endsWith('-inert')) copy.parentElement.setAttribute('inert', '');
+    if (kind === 'streaming') document.querySelector('form').insertAdjacentHTML('beforeend', '<button data-testid="stop-button">Stop</button>');
+    if (kind === 'real-challenge') {
+      document.querySelector('[data-talvt-turn-state]').insertAdjacentHTML('beforeend', '<div role="alert"><span>cloudflare_challenge</span><button>Retry</button></div>');
+      let failed = false; try { dom.finalCandidate(document, baseline, user); } catch (error) { failed = error.code === 'CHATGPT_CLOUDFLARE_CHALLENGE'; }
+      check(failed, 'real challenge must remain a challenge');
+    } else {
+      const answer = dom.finalCandidate(document, baseline, user);
+      const complete = ['modern-complete', 'legacy-complete', 'literal-challenge'].includes(kind);
+      check(complete ? answer?.text === (kind === 'literal-challenge' ? 'cloudflare_challenge' : 'answer') : answer === null, kind + ': wrong completion');
+    }
+    results.push(kind);
+  }
+  for (const replace of [false, true]) {
+    page(); const baseline = dom.snapshot(document);
+    document.querySelector('main').innerHTML = modernTurn('<p>answer</p>');
+    const user = dom.findSubmittedUser(document, baseline, 'first line\nsecond line');
+    if (replace) user.replaceWith(user.cloneNode(true));
+    check(dom.finalCandidate(document, baseline, user)?.text === 'answer', 'same-text rerender must retain ownership');
+    document.querySelector('[data-user-message-bubble="true"]').textContent = 'edited private question';
+    let rejected = false;
+    try { dom.finalCandidate(document, baseline, user); } catch (error) { rejected = /内容被替换/.test(error.message); }
+    check(rejected, 'same-ID edit must not retain answer ownership');
+    results.push(replace ? 'edited-user-replacement' : 'edited-user-same-node');
+  }
+  page(); document.querySelector('form').innerHTML = '<fieldset disabled><textarea id="prompt-textarea"></textarea><button data-testid="send-button">Send</button></fieldset>';
+  const disabledInput = document.querySelector('textarea');
+  check(!disabledInput.disabled && disabledInput.matches(':disabled'), 'fixture must reproduce inherited disabled state');
+  let rejectedInput = false; try { dom.insertPrompt(document, disabledInput, 'question'); } catch (error) { rejectedInput = /输入框当前不可用/.test(error.message); }
+  check(rejectedInput && !disabledInput.value && dom.sendButton(document, disabledInput) === null, 'disabled fieldset allowed input or send');
+  results.push('inherited-disabled-composer');
+  document.querySelector('fieldset').disabled = false; disabledInput.readOnly = true;
+  let readonlyRejected = false; try { dom.assertReady(document); } catch (error) { readonlyRejected = /输入框当前不可用/.test(error.message); }
+  check(readonlyRejected && dom.sendButton(document, disabledInput) === null, 'readonly composer accepted');
+  results.push('readonly-composer');
+  disabledInput.readOnly = false;
+  const fieldset = document.querySelector('fieldset'); fieldset.before(disabledInput); fieldset.disabled = true;
+  check(dom.assertReady(document) === disabledInput && dom.sendButton(document, disabledInput) === null, 'disabled fieldset allowed send control outside enabled composer');
+  results.push('inherited-disabled-send');
+
+  const [attachmentHtml, galleryHtml, pngBuffer] = await Promise.all([
+    fetch('/fixtures/chatgpt-modern-attachment.html').then(response => response.text()),
+    fetch('/fixtures/chatgpt-modern-generated-image.html').then(response => response.text()),
+    fetch('/fixtures/input-image.png').then(response => response.arrayBuffer()),
+  ]);
+  const pngBytes = new Uint8Array(pngBuffer);
+  const pngBase64 = btoa(Array.from(pngBytes, byte => String.fromCharCode(byte)).join(''));
+  for (const count of [1, 4]) {
+    document.body.innerHTML = '<main></main>' + attachmentHtml;
+    const input = dom.composer(document); const cards = document.querySelector('[data-composer-attachments] > div');
+    const template = cards.firstElementChild.outerHTML; cards.replaceChildren();
+    const uploads = []; const blobs = []; const pasted = [];
+    input.addEventListener('paste', event => {
+      event.preventDefault();
+      const files = [...event.clipboardData.files];
+      check(event.clipboardData instanceof DataTransfer && files.length === 1 && files[0] instanceof File, 'paste did not carry one native File');
+      const file = files[0]; pasted.push(file.name);
+      uploads.push((async () => {
+        const received = new Uint8Array(await file.arrayBuffer());
+        check(file.type === 'image/png' && received.length === pngBytes.length && received.every((byte, index) => byte === pngBytes[index]), 'clipboard file changed image bytes');
+        const wrapper = document.createElement('div'); wrapper.innerHTML = template.replaceAll('bridge-fixture-1.png', file.name);
+        const card = wrapper.firstElementChild; const image = card.querySelector('img');
+        image.src = URL.createObjectURL(file); blobs.push(image.src); cards.append(card);
+        await image.decode();
+      })());
+    });
+    const names = Array.from({ length: count }, (_, index) => `bridge-browser-${index + 1}.png`);
+    for (const name of names) dom.pasteInputImage(document, input, { mimeType: 'image/png', base64: pngBase64 }, name);
+    check(!dom.inputAttachmentState(input, names).ready, 'unacknowledged native upload was prematurely ready');
+    await Promise.all(uploads);
+    check(pasted.join('|') === names.join('|') && cards.children.length === count, 'native paste lost image order or count');
+    check(dom.inputAttachmentState(input, names).ready, 'decoded attachments failed readiness');
+    check(!dom.inputAttachmentState(input, names.map(name => name.replace('browser', 'foreign'))).ready, 'different attachment names accepted');
+    const progress = document.createElement('div'); progress.setAttribute('role', 'progressbar'); cards.firstElementChild.append(progress);
+    check(!dom.inputAttachmentState(input, names).ready, 'in-progress attachments accepted'); progress.remove();
+    blobs.forEach(url => URL.revokeObjectURL(url));
+    results.push(`native-image-input-${count}`);
+
+    page(); const baseline = dom.snapshot(document);
+    document.querySelector('main').innerHTML = galleryHtml;
+    const gallery = document.querySelector('[data-testid="generated-image-gallery"]');
+    const item = gallery.querySelector('[data-image-transparency-backdrop-scope]');
+    for (let index = 1; index < count; index++) item.parentElement.append(item.cloneNode(true));
+    const images = [...gallery.querySelectorAll('img')];
+    images.forEach((image, index) => { image.src = `/backend-api/estuary/content?id=file-synthetic-generated-${index + 1}`; });
+    await Promise.all(images.map(image => image.decode()));
+    const user = dom.findSubmittedUser(document, baseline, 'Generate a landscape');
+    const answer = dom.finalCandidate(document, baseline, user);
+    check(answer?.images.length === count && answer.images.every(image => image.width > 0 && image.height > 0), 'generated gallery lost loaded images');
+    const payloads = await Promise.all(answer.images.map(image => dom.readAnswerImage(image)));
+    check(payloads.length === count && payloads.every(payload => payload.mimeType === 'image/png' && payload.base64 === pngBase64 && payload.byteLength === pngBytes.length), 'generated image bytes changed or were omitted');
+    results.push(`generated-image-output-${count}`);
+  }
+  window.regressionResult = { passed: results.length, cases: results };
+} catch (error) { window.regressionResult = { error: error.stack, passed: results.length }; }
+</script>

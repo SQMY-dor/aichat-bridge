@@ -1,0 +1,157 @@
+<!doctype html><meta charset="utf-8"><title>Claude and Gemini browser audit</title>
+<script type="module">
+// Real browser semantics with sanitized provider fixtures. Every HTTP request
+// is fulfilled by the driver from an explicit local allowlist; no live account.
+const provider = location.hostname === 'claude.ai' ? 'claude' : 'gemini';
+const dom = await import(`/extension/${provider}-dom.js`);
+const source = await (await fetch(`/test/fixtures/${provider}-conversation.html`)).text();
+const original = new DOMParser().parseFromString(source, 'text/html').body.innerHTML;
+const attachment = await (await fetch(`/test/fixtures/${provider === 'claude' ? 'claude-prefixed' : 'gemini-clipboard'}-attachment.html`)).text();
+const results = [];
+const urls = [];
+const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+function check(value, text) { if (!value) throw new Error(text); }
+function rejected(fn, pattern) { let error; try { fn(); } catch (caught) { error = caught; } check(error instanceof dom.PageSafetyError && pattern.test(error.message), `Expected ${pattern}, got ${error?.message}`); }
+function reset() { for (const url of urls.splice(0)) URL.revokeObjectURL(url); document.body.innerHTML = original; }
+function appendTurn(body = '<p>Question</p>') {
+  const baseline = dom.snapshot(document);
+  let user, answer;
+  if (provider === 'claude') {
+    const userRow = document.querySelector('[data-testid="transcript-row"][data-perf-row="user"]').cloneNode(true);
+    const answerRow = document.querySelector('[data-testid="transcript-row"][data-perf-row="assistant"]').cloneNode(true);
+    user = userRow.querySelector('[data-testid="user-message"]'); user.innerHTML = body;
+    answer = answerRow.querySelector('[data-testid="assistant-message"]');
+    answer.querySelector('[data-perf-reply-text]').innerHTML = '<p>Completed answer</p>';
+    document.querySelector('main').append(userRow, answerRow);
+  } else {
+    const row = document.querySelector('.conversation-container').cloneNode(true); row.id = '0000000000000002';
+    user = row.querySelector('user-query'); user.querySelector('.query-text').innerHTML = body;
+    answer = row.querySelector('model-response'); answer.querySelector('.markdown-main-panel').innerHTML = '<p>Completed answer</p>';
+    document.querySelector('main').append(row);
+  }
+  return { baseline, user, answer, confirm: prompt => dom.findSubmittedUser(document, baseline, prompt), candidate: () => dom.finalCandidate(document, baseline, user) };
+}
+function footer(answer) { return provider === 'claude' ? answer.closest('[data-testid="transcript-row"]').querySelector('[data-testid="message-actions"]') : answer.querySelector('message-actions'); }
+function bodyOf(answer) { return answer.querySelector(provider === 'claude' ? '[data-perf-reply-text]' : '.markdown-main-panel'); }
+async function test(name, run) { reset(); await run(); results.push(`${provider}:${name}`); }
+async function waitReady(input, names) {
+  const end = performance.now() + 5000;
+  while (performance.now() < end) {
+    const state = dom.inputAttachmentState(input, names); if (state.ready) return;
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  throw new Error('Image fixture was not confirmed');
+}
+try {
+  await test('ready-and-current-composer', () => check(dom.assertReady(document) === dom.composer(document), 'ready composer missing'));
+  await test('native-editor-multiline-insertion', () => {
+    const input = dom.assertReady(document); dom.insertPrompt(document, input, 'first\nsecond');
+    check(dom.composerText(input).replace(/\s+/g, ' ').trim() === 'first second', 'insert lost text');
+    rejected(() => dom.assertReady(document), /草稿/);
+  });
+  await test('same-page-empty-composer-remount', () => {
+    const input = dom.composer(document); input.replaceWith(input.cloneNode(true));
+    check(dom.assertReady(document) !== input, 'composer was cached across remount');
+    rejected(() => dom.sendButton(document, input), /输入框已被替换/);
+  });
+  await test('duplicate-editor-refused', () => {
+    const input = dom.composer(document); input.after(input.cloneNode(true)); rejected(() => dom.composer(document), /多个可见/);
+  });
+  await test('inherited-disabled-submit', () => {
+    const input = dom.composer(document); const button = dom.sendButton(document, input);
+    button.closest('fieldset').disabled = true; let clicks = 0; button.addEventListener('click', () => { clicks++; }); button.click();
+    check(!button.disabled && button.matches(':disabled') && !clicks, 'browser disabled semantics missing');
+    check(dom.sendButton(document, input) === null, 'disabled submit returned');
+  });
+  await test('aria-disabled-submit-parent', () => {
+    const input = dom.composer(document); const button = dom.sendButton(document, input);
+    const wrapper = document.createElement('span'); button.before(wrapper); wrapper.append(button); wrapper.setAttribute('aria-disabled', 'true');
+    check(dom.sendButton(document, input) === null, 'aria-disabled submit returned');
+  });
+  await test('completed-own-answer-only', () => {
+    const state = appendTurn(); check(state.confirm('Question') === state.user, 'own prompt not confirmed');
+    check(state.candidate()?.text === 'Completed answer', 'answer missing or contains controls/reasoning');
+  });
+  for (const html of ['<p>first</p><p>second</p>', '<p>first<br>second</p>']) await test('multiline-submitted-text-' + (html.includes('<br>') ? 'br' : 'paragraphs'), () => {
+    const state = appendTurn(html); check(state.confirm('first\nsecond') === state.user, 'multiline prompt mismatch');
+    check(state.candidate()?.text === 'Completed answer', 'multiline answer ownership lost');
+  });
+  await test('empty-row-hydrates-before-confirmation', () => {
+    const state = appendTurn('<p></p>'); check(state.confirm('Question') === null && !state.baseline.submittedText, 'empty shell gained ownership');
+    (provider === 'claude' ? state.user : state.user.querySelector('.query-text')).innerHTML = '<p>Question</p>';
+    check(state.confirm('Question') === state.user && state.candidate()?.text === 'Completed answer', 'hydrated prompt failed');
+  });
+  await test('different-prompt-stops', () => { const state = appendTurn('<p>Different</p>'); rejected(() => state.confirm('Question'), /不同/); });
+  await test('edited-submitted-prompt-stops', () => {
+    const state = appendTurn(); state.confirm('Question');
+    (provider === 'claude' ? state.user : state.user.querySelector('.query-text')).textContent = 'Human changed it';
+    rejected(state.candidate, /内容被替换/);
+  });
+  await test('streaming-not-complete', () => {
+    const state = appendTurn(); state.confirm('Question');
+    if (provider === 'claude') state.answer.setAttribute('data-is-streaming', 'true'); else bodyOf(state.answer).setAttribute('aria-busy', 'true');
+    check(dom.generating(document) && state.candidate() === null, 'streaming answer forwarded');
+  });
+  await test('missing-footer-not-complete', () => { const state = appendTurn(); state.confirm('Question'); footer(state.answer).remove(); check(state.candidate() === null, 'missing footer accepted'); });
+  await test('disabled-footer-not-complete', () => {
+    const state = appendTurn(); state.confirm('Question'); const actions = footer(state.answer);
+    const fieldset = document.createElement('fieldset'); fieldset.disabled = true; actions.before(fieldset); fieldset.append(actions);
+    check(state.candidate() === null, 'disabled completion accepted');
+  });
+  await test('hidden-alert-does-not-stall-complete-answer', () => {
+    const state = appendTurn(); state.confirm('Question'); const error = document.createElement('div'); error.setAttribute('role', 'alert'); error.hidden = true; error.textContent = 'Old failure'; state.answer.append(error);
+    check(state.candidate()?.text === 'Completed answer', 'hidden alert stalled completion');
+    error.hidden = false; rejected(state.candidate, /回复失败/);
+  });
+  await test('code-whitespace-preserved', () => {
+    const state = appendTurn(); state.confirm('Question');
+    bodyOf(state.answer).innerHTML = '<p>Example</p><pre><code class="language-python">if True:\n    print(1)\n\n    print(2)\n</code></pre>';
+    check(state.candidate()?.text === 'Example\n\n```python\nif True:\n    print(1)\n\n    print(2)\n```', 'code formatting changed');
+  });
+  for (const count of [1, 4]) await test(`${count}-actual-response-images-return-in-order`, async () => {
+    const state = appendTurn(); state.confirm('Question'); const expected = [];
+    const bytes = Uint8Array.from(atob(png), character => character.charCodeAt(0));
+    for (let index = 0; index < count; index++) {
+      const url = URL.createObjectURL(new Blob([bytes], { type: 'image/png' })); urls.push(url); expected.push(url);
+      const image = document.createElement('img'); image.src = url; bodyOf(state.answer).append(image); await image.decode();
+    }
+    const result = state.candidate();
+    check(result?.text === 'Completed answer' && JSON.stringify(result.images.map(image => image.src)) === JSON.stringify(expected), 'response images lost or reordered');
+    for (const image of result.images) {
+      const payload = await dom.readAnswerImage(image);
+      check(payload.base64 === png && payload.mimeType === 'image/png', 'response image bytes changed');
+    }
+  });
+  for (const count of [1, 4]) await test(`${count}-actual-image-files-confirm-before-send`, async () => {
+    const input = dom.composer(document); const scope = dom.composerScope(input); const names = []; let uploads = 0;
+    const addFile = file => {
+      uploads++; const url = URL.createObjectURL(file); urls.push(url);
+      const wrapper = document.createElement('div'); wrapper.innerHTML = attachment;
+      const card = provider === 'claude' ? wrapper.firstElementChild : wrapper.querySelector('gem-media-attachment');
+      const image = card.querySelector('img'); image.src = url;
+      if (provider === 'claude') {
+        const name = `${1700000000000 + uploads}_${file.name}`; card.querySelector('.sr-only').textContent = name;
+        card.querySelector('[data-cds-attachment-remove]').setAttribute('aria-label', `移除 ${name}`);
+        scope.prepend(card);
+      } else {
+        const close = card.querySelector('.gem-attachment-close-button'); if (close) close.hidden = true;
+        let preview = scope.querySelector('.file-preview-container'); if (!preview) { preview = document.createElement('div'); preview.className = 'file-preview-container'; scope.prepend(preview); }
+        preview.append(card);
+      }
+    };
+    if (provider === 'claude') document.querySelector('[data-testid="file-upload"]').addEventListener('change', event => addFile(event.target.files[0]));
+    else input.addEventListener('paste', event => addFile(event.clipboardData.files[0]));
+    for (let index = 1; index <= count; index++) {
+      const name = `bridge-fixture-${index}.png`; names.push(name);
+      (dom.attachInputImage || dom.pasteInputImage)(document, input, { mimeType: 'image/png', base64: png }, name);
+      await waitReady(input, names);
+    }
+    check(uploads === count && dom.inputAttachmentState(input, names).ready, 'attachments were duplicated or not verified');
+    check(dom.composerText(input).trim() === '', 'attachment stage inserted prompt early');
+    dom.releaseInputImages(input);
+    check(!dom.inputAttachmentState(input, names).ready, 'released renamed attachments still authorized');
+  });
+  window.regressionResult = { provider, passed: results.length, cases: results };
+} catch (error) { window.regressionResult = { provider, passed: results.length, cases: results, error: error.stack }; }
+finally { for (const url of urls) URL.revokeObjectURL(url); }
+</script>

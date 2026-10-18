@@ -1,0 +1,24 @@
+{
+  "name": "aichat-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "node scripts/check.js"
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "^1.0.11",
+    "jsdom": "^26.1.0",
+    "protobufjs": "7.6.6"
+  },
+  "license": "MIT",
+  "description": "Bridge QQ and Feishu bots to ChatGPT, Claude, Gemini and international Qwen web conversations.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mmsx4717/aichat-bridge.git"
+  }
+}

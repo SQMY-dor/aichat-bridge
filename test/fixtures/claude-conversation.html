@@ -1,0 +1,53 @@
+<!doctype html>
+<!-- Sanitized structural fixture from read-only Claude inspection, October 2026.
+     All conversation text and identities below are synthetic. The native file
+     input boundary was observed live; event handling is modeled in tests. -->
+<main>
+  <div data-testid="transcript-row" data-index="4" data-perf-row="user">
+    <div class="group group/message-row">
+      <div class="cds-user-message-body"><div data-testid="user-message"><p>Earlier question</p></div></div>
+    </div>
+  </div>
+  <div data-testid="transcript-row" data-index="5" data-last-message="true" data-perf-row="assistant" data-perf-row-streaming="false" data-rs-index="5">
+    <div class="group group/message-row">
+      <div class="contents">
+        <div data-testid="assistant-message" data-is-streaming="false">
+          <h2 class="sr-only">Claude replied</h2>
+          <div class="font-claude-response">
+            <div data-testid="TurnStatus" data-cds="TurnStatus" data-state="done" data-step-key="thinking-0"><div class="standard-markdown">PRIVATE EARLIER REASONING</div></div>
+            <div data-cds="Prose"><div data-perf-reply-text class="standard-markdown"><p>Earlier answer</p></div></div>
+          </div>
+        </div>
+      </div>
+      <div data-testid="message-actions" role="toolbar">
+        <button data-testid="action-bar-copy" aria-label="Copy">Copy</button>
+        <button data-testid="action-bar-read-aloud" aria-label="Read aloud"></button>
+        <button data-testid="action-bar-thumbs-up" aria-label="Good response"></button>
+        <button data-testid="action-bar-thumbs-down" aria-label="Bad response"></button>
+        <button data-testid="action-bar-retry" aria-label="Retry">Retry</button>
+      </div>
+    </div>
+  </div>
+</main>
+<fieldset data-cds-dock-group data-perf-region="composer">
+<div data-cds-dock-group>
+<input id="chat-input-file-upload-bottom" data-testid="file-upload" type="file" multiple accept="" aria-hidden="true" aria-label="上传文件">
+<div role="status" aria-live="polite"></div>
+<div role="status" aria-live="polite"></div>
+<div data-composer-card-holder>
+<div data-cds="ChatComposer" data-form="reply" data-cds-dock-group data-end-inset="actions" data-tap-focuses-field>
+  <div class="bg-surface-3 rounded-composer">
+    <div class="relative w-full min-w-0">
+      <div><div class="relative min-w-0 break-words"><div class="relative min-w-0">
+        <div data-cds="ChatComposerEditor">
+          <div data-testid="chat-input" contenteditable="true" class="tiptap ProseMirror" data-cds="Editor" data-composer-editor="marlin" role="textbox" aria-label="输入您发送给 Claude 的提示词"><p><br></p></div>
+        </div>
+      </div></div></div>
+      <button data-testid="chat-input-send" aria-label="发送消息"></button>
+    </div>
+  </div>
+</div>
+</div>
+</div>
+</fieldset>
+<div data-testid="response-status-announcer" role="status">回复已完成</div>

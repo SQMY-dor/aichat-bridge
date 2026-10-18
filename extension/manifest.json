@@ -1,0 +1,69 @@
+{
+  "manifest_version": 3,
+  "name": "AIChat桥接",
+  "version": "0.1.0",
+  "minimum_chrome_version": "120",
+  "description": "ChatGPT、Claude、Gemini 与海外版 Qwen 网页独立连接 QQ 和飞书机器人，支持双通道、图片、富文本回复与关键词拦截。",
+  "permissions": [
+    "storage",
+    "tabs",
+    "alarms",
+    "offscreen",
+    "unlimitedStorage"
+  ],
+  "host_permissions": [
+    "https://api.bot.qq.com/*",
+    "https://chatgpt.com/*",
+    "https://multimedia.nt.qq.com.cn/*",
+    "https://gchat.qpic.cn/*",
+    "https://c2cpicdw.qpic.cn/*",
+    "https://open.feishu.cn/*",
+    "https://claude.ai/*",
+    "https://gemini.google.com/*",
+    "https://chat.qwen.ai/*"
+  ],
+  "background": {
+    "service_worker": "worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "打开 AIChat桥接 设置"
+  },
+  "options_page": "options.html",
+  "content_scripts": [
+    {
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://chat.qwen.ai/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "dom.js",
+        "shared.js",
+        "claude-dom.js",
+        "gemini-dom.js",
+        "image-equivalence.js",
+        "qwen-dom.js"
+      ],
+      "matches": [
+        "https://chatgpt.com/*",
+        "https://claude.ai/*",
+        "https://gemini.google.com/*",
+        "https://chat.qwen.ai/*"
+      ]
+    }
+  ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'self' https://open.feishu.cn wss://*.feishu.cn https://api.bot.qq.com wss://api.bot.qq.com wss://api.sgroup.qq.com wss://wss.api.sgroup.qq.com https://multimedia.nt.qq.com.cn https://gchat.qpic.cn https://c2cpicdw.qpic.cn https://chatgpt.com https://claude.ai https://gemini.google.com https://*.oaiusercontent.com https://chat.qwen.ai https://qwen-webui-prod.oss-accelerate.aliyuncs.com blob:"
+  }
+}
