@@ -231,3 +231,25 @@ test('a post-send editor remount still recovers the already submitted image-and-
     x.assertClean();
   } finally { x.close(); }
 });
+
+test('a partial ChatGPT user body may finish rendering before the original confirmation deadline', async () => {
+  const x = await fixture({ image: false });
+  try {
+    await x.start(); await x.render({ text: '请分析' });
+    await x.advance(5000);
+    assert.equal(x.error, undefined); assert.equal(x.result, undefined); assert.equal(x.clicks, 1);
+    x.doc.querySelector('[data-turn-key="submitted-0"] [data-user-message-bubble]').textContent = prompt;
+    await flush(); await x.advance(800);
+    assert.equal(x.error, undefined); assert.equal(x.result.text, 'Final image description'); x.assertClean();
+  } finally { x.close(); }
+});
+
+test('a ChatGPT prompt prefix never authorizes an answer or extends the 20-second confirmation limit', async () => {
+  const x = await fixture({ image: false });
+  try {
+    await x.start(); await x.render({ text: '请分析' });
+    await x.advance(20000);
+    assert.equal(x.result, undefined); assert.match(x.error.error, /提问正文尚未完整.*已识别 3\/12 字符/);
+    x.assertClean();
+  } finally { x.close(); }
+});

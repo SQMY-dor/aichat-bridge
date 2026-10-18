@@ -37,6 +37,69 @@ try {
   check(mismatch, 'different user text must remain rejected');
   results.push('user-message-before-text');
 
+  for (const paintedText of ['', 'first line']) {
+    page(); const baseline = dom.snapshot(document);
+    document.querySelector('main').innerHTML = modernTurn('<p>answer</p>');
+    const body = document.querySelector('[data-user-message-bubble="true"]');
+    Object.defineProperty(body, 'innerText', { configurable: true, get: () => paintedText });
+    const user = dom.findSubmittedUser(document, baseline, 'first line\nsecond line');
+    check(user && dom.finalCandidate(document, baseline, user)?.text === 'answer', 'complete DOM must not depend on empty or stale painted innerText');
+    results.push(paintedText ? 'user-dom-with-stale-innertext' : 'user-dom-with-empty-innertext');
+  }
+
+  for (const [name, noise] of [
+    ['button', '<button>Copy</button><span role="button">Retry</span>'],
+    ['hidden', '<span hidden>hidden label</span><span aria-hidden="true">aria label</span>'],
+    ['display-none', '<span style="display:none">display label</span>'],
+    ['visibility-hidden', '<span style="visibility:hidden">visibility label</span>'],
+    ['class-hidden', '<style>.audit-user-hidden { display: none; } .audit-user-invisible { visibility: hidden; }</style><span class="audit-user-hidden">class display label</span><span class="audit-user-invisible">class visibility label</span>'],
+  ]) {
+    page(); const baseline = dom.snapshot(document);
+    document.querySelector('main').innerHTML = modernTurn('<p>answer</p>');
+    document.querySelector('[data-user-message-bubble="true"] p').insertAdjacentHTML('beforeend', noise);
+    const user = dom.findSubmittedUser(document, baseline, 'first line\nsecond line');
+    check(user && dom.finalCandidate(document, baseline, user)?.text === 'answer', 'non-message descendants must be excluded using live Chromium styles: ' + name);
+    results.push('user-body-excludes-' + name);
+  }
+
+  page(); const priorityBaseline = dom.snapshot(document);
+  document.querySelector('main').innerHTML = modernTurn('<p>answer</p>');
+  const priorityBody = document.querySelector('[data-user-message-bubble="true"]');
+  priorityBody.insertAdjacentHTML('beforebegin', '<div class="whitespace-pre-wrap">attachment-filename.png</div>');
+  const priorityUser = dom.findSubmittedUser(document, priorityBaseline, 'first line\nsecond line');
+  check(priorityUser && dom.finalCandidate(document, priorityBaseline, priorityUser)?.text === 'answer', 'generic wrappers before the modern bubble must not override its text');
+  results.push('modern-user-bubble-priority');
+
+  page(); const noBubbleBaseline = dom.snapshot(document);
+  document.querySelector('main').innerHTML = modernTurn('<p>answer</p>');
+  document.querySelector('[data-user-message-bubble="true"]').outerHTML = '<div class="whitespace-pre-wrap">first line second line</div>';
+  check(dom.findSubmittedUser(document, noBubbleBaseline, 'first line\nsecond line') === null && !noBubbleBaseline.submittedUser, 'a same-text generic wrapper without a modern bubble cannot own the turn');
+  results.push('modern-user-without-bubble-remains-unowned');
+
+  page(); const prefixBaseline = dom.snapshot(document);
+  document.querySelector('main').innerHTML = modernTurn('<p>answer</p>');
+  const prefixBody = document.querySelector('[data-user-message-bubble="true"]');
+  prefixBody.innerHTML = '<p>first line</p>';
+  check(dom.findSubmittedUser(document, prefixBaseline, 'first line\nsecond line') === null && !prefixBaseline.submittedUser, 'an initial matching prefix must remain unowned');
+  prefixBody.innerHTML = '<p>first line</p><p>second line</p>';
+  const prefixUser = dom.findSubmittedUser(document, prefixBaseline, 'first line\nsecond line');
+  check(prefixUser && dom.finalCandidate(document, prefixBaseline, prefixUser)?.text === 'answer', 'a fully hydrated prompt must become owned');
+  results.push('user-prefix-hydrates-to-complete');
+  prefixBody.innerHTML = '<p>first line</p>';
+  let confirmedPrefixRejected = false;
+  try { dom.finalCandidate(document, prefixBaseline, prefixUser); } catch (error) { confirmedPrefixRejected = /内容被替换/.test(error.message); }
+  check(confirmedPrefixRejected, 'a prefix after confirmation is an edit, not new hydration');
+  results.push('confirmed-user-prefix-is-rejected');
+
+  page(); const hiddenTurnBaseline = dom.snapshot(document);
+  document.querySelector('main').innerHTML = modernTurn('<p>answer</p>');
+  const hiddenTurnUser = dom.findSubmittedUser(document, hiddenTurnBaseline, 'first line\nsecond line');
+  const hiddenTurn = document.querySelector('[data-turn-key]'); hiddenTurn.style.display = 'none';
+  check(dom.finalCandidate(document, hiddenTurnBaseline, hiddenTurnUser) === null, 'a hidden complete turn must wait without reporting a changed prompt');
+  hiddenTurn.style.display = '';
+  check(dom.finalCandidate(document, hiddenTurnBaseline, hiddenTurnUser)?.text === 'answer', 'restoring turn display must recheck fresh styles and retain ownership');
+  results.push('hidden-turn-waits-without-user-mismatch');
+
   for (const kind of ['modern-complete', 'modern-disabled', 'modern-hidden', 'modern-inert', 'legacy-complete', 'legacy-disabled', 'legacy-hidden', 'legacy-inert', 'streaming', 'literal-challenge', 'real-challenge']) {
     page(); const baseline = dom.snapshot(document); const modern = !kind.startsWith('legacy');
     document.querySelector('main').innerHTML = modern ? modernTurn(kind === 'literal-challenge' ? '<p>cloudflare_challenge</p>' : '<p>answer</p>') : legacyTurn;

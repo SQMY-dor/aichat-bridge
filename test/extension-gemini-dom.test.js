@@ -336,6 +336,36 @@ test('Gemini needs nonbusy public output, complete footer and both scoped native
   assert.equal(candidate(doc, state), null);
 });
 
+test('Gemini completed background replies do not require hovering response controls', () => {
+  for (const selector of ['response-container-footer', 'message-actions', 'copy-button button', 'regenerate-button button']) {
+    const doc = page(); const state = submitted(doc); const message = addAnswer(doc);
+    Object.defineProperties(doc, { hidden: { value: true }, visibilityState: { value: 'hidden' } });
+    message.querySelector(selector).style.visibility = 'hidden';
+    assert.equal(candidate(doc, state)?.text, 'Final answer', selector);
+    assert.equal(dom.assertReady(doc), dom.composer(doc), selector);
+  }
+});
+
+test('Gemini hover-independent completion still rejects concealed, disabled and duplicate controls', () => {
+  for (const change of [
+    message => { message.querySelector('message-actions').hidden = true; },
+    message => { message.querySelector('message-actions').setAttribute('aria-hidden', 'true'); },
+    message => { message.querySelector('message-actions').style.display = 'none'; },
+    message => { message.querySelector('message-actions').setAttribute('inert', ''); },
+    message => { message.querySelector('message-actions').setAttribute('aria-disabled', 'true'); },
+    message => { message.querySelector('copy-button button').disabled = true; },
+    message => { const actions = message.querySelector('message-actions'); actions.after(actions.cloneNode(true)); },
+    message => { message.querySelector('.markdown').style.visibility = 'hidden'; },
+    message => { message.style.visibility = 'hidden'; },
+    message => { message.querySelector('.markdown').setAttribute('aria-busy', 'true'); },
+    message => { message.querySelector('.response-footer').classList.remove('complete'); },
+  ]) {
+    const doc = page(); const state = submitted(doc); const message = addAnswer(doc);
+    message.querySelector('message-actions').style.visibility = 'hidden'; change(message);
+    assert.equal(candidate(doc, state), null);
+  }
+});
+
 test('Gemini pending previous turn or webpage failure blocks leases and forwarding', () => {
   const doc = page(); const state = submitted(doc); assert.throws(() => dom.assertReady(doc), /尚未明确完成/);
   addAnswer(doc, answer('<p>Partial</p>', { complete: false })); assert.throws(() => dom.assertReady(doc), /尚未明确完成/);
@@ -607,6 +637,17 @@ test('Gemini actual image-only response completes without a toolbar text-copy ac
   const result = candidate(doc, state);
   assert.equal(result.text, ''); assert.deepEqual(result.images, [{ src: image.src, width: 1024, height: 559 }]);
   assert.equal(dom.assertReady(doc), dom.composer(doc));
+});
+
+test('Gemini generated image completion is independent of hover-only download and reply actions', () => {
+  const doc = page(); const state = submitted(doc); const message = addAnswer(doc, answer(generatedImage));
+  message.querySelector('message-actions copy-button').remove();
+  message.querySelector('message-actions').style.visibility = 'hidden';
+  message.querySelector('.generated-image-controls').style.visibility = 'hidden';
+  const image = message.querySelector('img'); loaded(image);
+  assert.equal(candidate(doc, state)?.images.length, 1);
+  message.querySelector('download-generated-image-button button').disabled = true;
+  assert.equal(candidate(doc, state), null);
 });
 
 test('Gemini image-only history with a loaded class but unready pixels cannot lease another task', () => {

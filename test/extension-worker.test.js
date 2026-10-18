@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -9,10 +9,13 @@ const sessionId = 'session_123456789';
 const cancellableJobId = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 let counter = 0;
+let activeWorker;
+after(() => activeWorker?.stopPageWakePulse());
 function event() { return { listeners: [], addListener(fn) { this.listeners.push(fn); } }; }
 async function setup({ store, request, contextPresent = false, createHost, platform = 'qq', assistant = 'chatgpt', sendTabMessage, initialStatus, dual = false } = {}) {
+  activeWorker?.stopPageWakePulse();
   store ||= { browserId: 'browser-one' };
-  const tab = { id: 7, url, title: 'Test conversation' };
+  const tab = { id: 7, windowId: 1, active: false, autoDiscardable: true, url, title: 'Test conversation' };
   const calls = [];
   const startupCalls = [];
   let initializing = true;
@@ -25,6 +28,7 @@ async function setup({ store, request, contextPresent = false, createHost, platf
   const fetchCalls = [];
   const alarms = [];
   const tabMessages = [];
+  const tabUpdates = [];
   const otherTabs = new Map();
   const chrome = {
     storage: { local: {
@@ -37,6 +41,13 @@ async function setup({ store, request, contextPresent = false, createHost, platf
     tabs: {
       async get(id) { if (id === tab.id) return { ...tab }; if (otherTabs.has(id)) return { ...otherTabs.get(id) }; throw new Error('No tab'); },
       async query() { return [{ ...tab }, ...otherTabs.values()]; },
+      async update(id, properties) {
+        const target = id === tab.id ? tab : otherTabs.get(id);
+        if (!target) throw new Error('No tab');
+        tabUpdates.push({ tabId: id, properties: structuredClone(properties) });
+        if (properties.active) for (const other of [tab, ...otherTabs.values()]) if (other.windowId === target.windowId) other.active = false;
+        Object.assign(target, properties); return { ...target };
+      },
       async sendMessage(tabId, message, options) { tabMessages.push({ tabId, message: structuredClone(message), options: structuredClone(options) }); return sendTabMessage?.(tabId, message, options); },
       onRemoved: event(), onUpdated: event(),
     },
@@ -86,7 +97,7 @@ async function setup({ store, request, contextPresent = false, createHost, platf
   };
   globalThis.chrome = chrome;
   globalThis.fetch = async (...args) => { fetchCalls.push(args); throw new Error('Service worker must not use network transport'); };
-  await import(`../extension/worker.js?isolated=${++counter}`); await tick(); await tick();
+  activeWorker = await import(`../extension/worker.js?isolated=${++counter}`); await tick(); await tick();
   await flushWakes();
   initializing = false;
   const sender = { id: chrome.runtime.id, frameId: 0, url: testUrl, tab: { ...tab } };
@@ -100,7 +111,7 @@ async function setup({ store, request, contextPresent = false, createHost, platf
   });
   const alarm = async () => { chrome.alarms.onAlarm.listeners[0]({ name: 'bot-bridge-maintenance' }); for (let i = 0; i < 12; i++) await tick(); };
   const startup = async () => { chrome.runtime.onStartup.listeners[0](); for (let i = 0; i < 12; i++) await tick(); };
-  return { store, tab, chrome, sender, optionsSender, send, alarm, startup, tabMessages, otherTabs, calls, startupCalls, hostCreates, contextChecks, fetchCalls, alarms, setHostPresent(value) { contextPresent = value; } };
+  return { store, tab, chrome, sender, optionsSender, send, alarm, startup, tabMessages, tabUpdates, otherTabs, calls, startupCalls, hostCreates, contextChecks, fetchCalls, alarms, setHostPresent(value) { contextPresent = value; } };
 }
 test('worker authenticates sender, keeps credentials out of content and uses actual tab identity', async () => {
   const x = await setup();
@@ -1089,7 +1100,7 @@ test('page load and thaw lifecycle events wake queued bindings without changing 
   await flushWakes(); assert.equal(x.tabMessages.length, 3);
 });
 
-test('maintenance wakes an unstarted local lease even when the backend has no queued groups', async () => {
+test('maintenance wakes leased and started jobs without replaying a submission even when the backend has no queued groups', async () => {
   const x = await setup();
   await x.send({ type: 'bridge:poll' });
   await x.alarm(); await flushWakes();
@@ -1098,7 +1109,7 @@ test('maintenance wakes an unstarted local lease even when the backend has no qu
   assert.equal(x.store['bot.bridge.job.7'].state, 'leased');
   await x.send({ type: 'bridge:started', jobId: 'job-1' });
   await x.alarm(); await flushWakes();
-  assert.equal(x.tabMessages.length, 1);
+  assert.equal(x.tabMessages.length, 2);
   assert.equal(x.calls.filter(call => call.path.endsWith('/started')).length, 1);
 });
 
@@ -1482,4 +1493,207 @@ test('idle recovery retains image metadata but exposes no lease credentials and 
   const y=await setup();await y.send({type:'bridge:poll'});await y.send(idlePrepare);y.store['bot.bridge.job.7'].expiresAt=Date.now()-1;
   assert.equal((await y.send({type:'bridge:challenge-resume',sessionId:'new_document_session'})).data.job,null);
   assert.equal(y.store['bot.bridge.job.7'],undefined);assert.equal(y.calls.some(c=>c.path.endsWith('/started')),false);
+});
+
+test('started tasks receive load and thaw wake hints without new host submissions or foreground activation', async () => {
+  const x = await setup(); await x.send({ type: 'bridge:poll' }); await x.send({ type: 'bridge:started', jobId: 'job-1' });
+  const originalCalls = x.calls.length;
+  for (const change of [{ status: 'complete' }, { frozen: false }, { discarded: false }]) {
+    x.chrome.tabs.onUpdated.listeners[0](7, change); await flushWakes();
+  }
+  assert.deepEqual(x.tabMessages.map(item => item.tabId), [7, 7, 7]);
+  assert.ok(x.tabMessages.every(item => item.message.type === 'bridge:wake'));
+  assert.ok(x.calls.slice(originalCalls).every(call => call.path === '/v1/status'));
+  assert.ok(x.tabUpdates.every(update => !Object.hasOwn(update.properties, 'active')));
+});
+
+test('one-second page wake pulse only scans live local jobs and stops when work ends or expires', async t => {
+  const x = await setup();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    await x.send({ type: 'bridge:poll' }); await x.send({ type: 'bridge:started', jobId: 'job-1' });
+    const originalCalls = x.calls.length;
+    for (let i = 0; i < 3; i++) { t.mock.timers.tick(1000); for (let j = 0; j < 6; j++) await tick(); }
+    assert.equal(x.tabMessages.length, 3);
+    assert.equal(x.calls.length, originalCalls, 'pulse never calls host status or submit');
+    assert.ok(x.tabUpdates.every(update => !Object.hasOwn(update.properties, 'active')));
+    await x.send({ type: 'bridge:error', jobId: 'job-1', error: 'Stopped' });
+    t.mock.timers.tick(1000); for (let j = 0; j < 6; j++) await tick();
+    t.mock.timers.tick(600000); await tick();
+    assert.equal(x.tabMessages.length, 3, 'the empty pulse loop does not persist');
+    await x.send({ type: 'bridge:poll' });
+    x.store['bot.bridge.job.7'].expiresAt = Date.now() - 1;
+    t.mock.timers.tick(1000); for (let j = 0; j < 6; j++) await tick();
+    t.mock.timers.tick(600000); await tick();
+    assert.equal(x.tabMessages.length, 3, 'expired tasks cannot keep the pulse alive');
+  } finally { activeWorker.stopPageWakePulse(); }
+});
+
+test('leasing protects the bound tab from discarding without activating it, and completion restores its previous setting', async () => {
+  for (const assistant of ASSISTANTS) {
+    const x = await setup({ assistant });
+    const result = await x.send({ type: 'bridge:poll' });
+    assert.equal(result.ok, true);
+    assert.equal(Object.hasOwn(result.data.job, 'foregroundRequired'), false);
+    assert.equal(x.tab.active, false);
+    assert.equal(x.tab.autoDiscardable, false);
+    assert.deepEqual(x.tabUpdates, [{ tabId: 7, properties: { autoDiscardable: false } }]);
+    await x.send({ type: 'bridge:started', jobId: 'job-1' });
+    assert.equal(x.tab.autoDiscardable, false, 'protection remains while the answer generates');
+    await x.send({ type: 'bridge:result', jobId: 'job-1', text: 'Done', images: [] });
+    assert.equal(x.tab.autoDiscardable, true);
+    assert.equal(x.store['bot.bridge.tab-protection.7'], undefined);
+    assert.ok(x.tabUpdates.every(update => !Object.hasOwn(update.properties, 'active')));
+  }
+});
+
+test('error, expiry, navigation and tab close release discard protection; a pre-existing false value is never changed', async () => {
+  for (const termination of ['error', 'expiry', 'navigation', 'closed']) {
+    const x = await setup(); await x.send({ type: 'bridge:poll' });
+    assert.equal(x.tab.autoDiscardable, false);
+    if (termination === 'error') await x.send({ type: 'bridge:error', jobId: 'job-1', error: 'Stopped' });
+    else if (termination === 'expiry') { x.store['bot.bridge.job.7'].expiresAt = Date.now() - 1; await x.alarm(); }
+    else if (termination === 'closed') { x.chrome.tabs.onRemoved.listeners[0](7); for (let i = 0; i < 12; i++) await tick(); }
+    else {
+      x.tab.url = 'https://chatgpt.com/c/another-conversation';
+      x.chrome.tabs.onUpdated.listeners[0](7, { url: x.tab.url });
+      for (let i = 0; i < 12; i++) await tick();
+    }
+    assert.equal(x.store['bot.bridge.job.7'], undefined, termination);
+    assert.equal(x.store['bot.bridge.tab-protection.7'], undefined, termination);
+    if (termination !== 'closed') assert.equal(x.tab.autoDiscardable, true, termination);
+    assert.ok(x.tabUpdates.every(update => !Object.hasOwn(update.properties, 'active')));
+  }
+  const x = await setup(); x.tab.autoDiscardable = false;
+  await x.send({ type: 'bridge:poll' }); await x.send({ type: 'bridge:error', jobId: 'job-1', error: 'Stopped' });
+  assert.equal(x.tab.autoDiscardable, false);
+  assert.deepEqual(x.tabUpdates, []);
+});
+
+test('failed discard restoration remains durable across worker restart and retries after the completed job is gone', async () => {
+  const x = await setup(); await x.send({ type: 'bridge:poll' });
+  const update = x.chrome.tabs.update;
+  x.chrome.tabs.update = (id, options) => options.autoDiscardable === true ? Promise.reject(Error('temporary failure')) : update(id, options);
+  await x.send({ type: 'bridge:error', jobId: 'job-1', error: 'Stopped' });
+  assert.equal(x.store['bot.bridge.job.7'], undefined);
+  assert.ok(x.store['bot.bridge.tab-protection.7']);
+  const y = await setup({ store: x.store });
+  assert.equal(y.store['bot.bridge.tab-protection.7'], undefined);
+  assert.deepEqual(y.tabUpdates, [{ tabId: 7, properties: { autoDiscardable: true } }]);
+});
+
+test('a failed discard-protection API call does not break a lease or enable automatic foreground switching', async () => {
+  const x = await setup(); x.chrome.tabs.update = async () => { throw Error('temporary failure'); };
+  const result = await x.send({ type: 'bridge:poll' });
+  assert.equal(result.ok, true); assert.equal(result.data.job.id, 'job-1');
+  assert.equal(x.tab.active, false);
+  assert.equal((await x.send({ type: 'bridge:foreground', jobId: 'job-1' })).ok, false);
+  assert.equal((await x.send({ type: 'bridge:foreground-release', jobId: 'job-1' })).ok, false);
+  assert.equal((await x.send({ type: 'bridge:started', jobId: 'job-1' })).ok, true);
+});
+
+test('page wake pulses skip foreign browser identities and changed live URLs without keeping a loop alive', async t => {
+  const x = await setup();
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    await x.send({ type: 'bridge:poll' });
+    x.store['bot.bridge.job.7'].browserId = 'another-browser';
+    t.mock.timers.tick(1000); for (let j = 0; j < 6; j++) await tick();
+    t.mock.timers.tick(600000); await tick();
+    assert.deepEqual(x.tabMessages, []);
+    x.store['bot.bridge.job.7'].browserId = 'browser-one';
+    await x.send({ type: 'bridge:started', jobId: 'job-1' });
+    x.tab.url = 'https://chatgpt.com/c/another-conversation';
+    t.mock.timers.tick(1000); for (let j = 0; j < 6; j++) await tick();
+    t.mock.timers.tick(600000); await tick();
+    assert.deepEqual(x.tabMessages, []);
+    assert.ok(x.tabUpdates.every(update => !Object.hasOwn(update.properties, 'active')));
+  } finally { activeWorker.stopPageWakePulse(); }
+});
+
+test('a new live job arriving during the final empty pulse schedules another wake', async t => {
+  const x = await setup(); t.mock.timers.enable({ apis: ['setTimeout'] });
+  try {
+    await x.send({ type: 'bridge:poll' });
+    await x.send({ type: 'bridge:error', jobId: 'job-1', error: 'Finished first task' });
+    let releaseScan; let held = false;
+    const get = x.chrome.storage.local.get;
+    x.chrome.storage.local.get = async keys => {
+      const snapshot = await get(keys);
+      if (keys === null && !held) { held = true; await new Promise(resolve => { releaseScan = resolve; }); }
+      return snapshot;
+    };
+    t.mock.timers.tick(1000); for (let i = 0; i < 6; i++) await tick();
+    assert.equal(held, true);
+    await x.send({ type: 'bridge:poll' }); await x.send({ type: 'bridge:started', jobId: 'job-1' });
+    releaseScan(); for (let i = 0; i < 6; i++) await tick();
+    t.mock.timers.tick(1000); for (let i = 0; i < 6; i++) await tick();
+    assert.equal(x.tabMessages.length, 1, 'replacement task receives the next pulse without waiting for the maintenance alarm');
+  } finally { activeWorker.stopPageWakePulse(); }
+});
+
+test('maintenance retries temporary discard protection failures at most three times for a live job', async () => {
+  for (const recover of [true, false]) {
+    const x = await setup(); const update = x.chrome.tabs.update; let attempts = 0;
+    x.chrome.tabs.update = async (id, properties) => {
+      if (properties.autoDiscardable === false) { attempts++; if (!recover || attempts === 1) throw Error('temporary failure'); }
+      return update(id, properties);
+    };
+    await x.send({ type: 'bridge:poll' }); await x.send({ type: 'bridge:started', jobId: 'job-1' });
+    for (let i = 0; i < 5; i++) await x.alarm();
+    assert.equal(attempts, recover ? 2 : 3);
+    assert.equal(x.tab.autoDiscardable, !recover);
+    assert.equal(x.store['bot.bridge.job.7'].state, 'started');
+    assert.ok(x.tabUpdates.every(update => !Object.hasOwn(update.properties, 'active')));
+  }
+});
+
+test('stale discard records never change tabs belonging to another browser, URL or unverifiable legacy record', async () => {
+  for (const change of [
+    protection => { protection.browserId = 'another-browser'; },
+    protection => { protection.conversationUrl = 'https://chatgpt.com/c/other-conversation'; },
+    protection => { delete protection.assistant; delete protection.conversationUrl; },
+  ]) {
+    const protection = { tabId: 7, browserId: 'browser-one', assistant: 'chatgpt', conversationUrl: url, autoDiscardable: true };
+    change(protection);
+    const x = await setup({ store: { browserId: 'browser-one', 'bot.bridge.tab-protection.7': protection } });
+    assert.deepEqual(x.tabUpdates, []);
+    assert.equal(x.store['bot.bridge.tab-protection.7'], undefined, 'unverifiable ownership is retired without changing the tab');
+  }
+});
+
+test('closed tabs cannot block durable result delivery or error reporting when the removal event was missed', async () => {
+  for (const state of ['result-pending', 'error-pending']) {
+    const x = await setup(); await x.send({ type: 'bridge:poll' }); await x.send({ type: 'bridge:started', jobId: 'job-1' });
+    Object.assign(x.store['bot.bridge.job.7'], state === 'result-pending'
+      ? { state, text: 'Completed before tab closed', images: [] }
+      : { state, error: 'Stopped before tab closed' });
+    x.chrome.tabs.get = async () => { throw Error('No tab with id: 7.'); };
+    await x.alarm();
+    assert.equal(x.store['bot.bridge.job.7'], undefined, state);
+    assert.equal(x.store['bot.bridge.tab-protection.7'], undefined, state);
+    assert.ok(x.calls.some(call => call.path === `/v1/jobs/job-1/${state === 'result-pending' ? 'result' : 'error'}`), state);
+  }
+});
+
+test('transient protection reads preserve restoration records without blocking completion or failure', async () => {
+  for (const operation of ['result', 'error']) {
+    const x = await setup(); await x.send({ type: 'bridge:poll' }); await x.send({ type: 'bridge:started', jobId: 'job-1' });
+    const get = x.chrome.storage.local.get;
+    x.chrome.storage.local.get = keys => keys === 'bot.bridge.tab-protection.7' ? Promise.reject(Error('temporary storage failure')) : get(keys);
+    const reply = await x.send(operation === 'result'
+      ? { type: 'bridge:result', jobId: 'job-1', text: 'Done', images: [] }
+      : { type: 'bridge:error', jobId: 'job-1', error: 'Stopped' });
+    assert.equal(reply.ok, true, operation);
+    assert.equal(x.store['bot.bridge.job.7'], undefined, operation);
+    assert.ok(x.store['bot.bridge.tab-protection.7'], operation);
+    x.chrome.storage.local.get = get;
+    const getTab = x.chrome.tabs.get;
+    x.chrome.tabs.get = async () => { throw Error('temporary tabs service failure'); };
+    await x.alarm(); assert.ok(x.store['bot.bridge.tab-protection.7'], operation);
+    x.chrome.tabs.get = getTab;
+    await x.alarm();
+    assert.equal(x.store['bot.bridge.tab-protection.7'], undefined, operation);
+    assert.equal(x.tab.autoDiscardable, true, operation);
+  }
 });

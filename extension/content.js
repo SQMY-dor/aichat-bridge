@@ -1,7 +1,7 @@
 (() => {
   if (globalThis.__chatGPTBotBridge) return;
   globalThis.__chatGPTBotBridge = true;
-  const CONTENT_VERSION = '0.1.0';
+  const CONTENT_VERSION = '0.1.1';
   const pageOpenedAt = Date.now();
   let bridgeIdleSince = pageOpenedAt;
   const IDLE_REFRESH_MS = 10 * 60 * 1000;
@@ -12,7 +12,20 @@
   const sessionId = crypto.randomUUID();
   let running = false; let wakePending = false; let platformLabel = '机器人';
   let reloading = false; let recoveryChecked = false;
-  const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+  // Worker messages and browser lifecycle events can arrive while page timers
+  // are throttled. Wake only existing waits; never start another submission.
+  const activeWaits = new Set();
+  const wakeWaits = () => { for (const wake of [...activeWaits]) wake(); };
+  const sleep = ms => new Promise(resolve => {
+    const until = Date.now() + ms; let timer;
+    const wake = () => {
+      clearTimeout(timer);
+      const remaining = until - Date.now();
+      if (remaining > 0) { timer = setTimeout(wake, remaining); return; }
+      activeWaits.delete(wake); resolve();
+    };
+    activeWaits.add(wake); timer = setTimeout(wake, ms);
+  });
   const badge = document.createElement('div');
   const shadow = badge.attachShadow({ mode: 'closed' });
   const label = document.createElement('span');
@@ -52,7 +65,7 @@
         const confirmDeadline = Math.min(deadline, Date.now() + 20000);
         let finished = false; let timer;
         const cleanup = () => {
-          clearTimeout(timer); observer.disconnect();
+          clearTimeout(timer); observer.disconnect(); activeWaits.delete(changed);
           document.removeEventListener('visibilitychange', changed);
           document.removeEventListener('resume', changed);
           window.removeEventListener('pageshow', changed);
@@ -94,6 +107,7 @@
         document.addEventListener('resume', changed);
         window.addEventListener('pageshow', changed);
         window.addEventListener('focus', changed);
+        activeWaits.add(changed);
         changed();
       });
     }
@@ -102,9 +116,12 @@
         let finished = false; let timer; let previous = ''; let stableSince = 0; let firstCandidateAt = null;
         let background = document.visibilityState !== 'visible';
         const cleanup = () => {
-          clearTimeout(timer); observer.disconnect();
+          clearTimeout(timer); observer.disconnect(); activeWaits.delete(changed);
           document.removeEventListener('load', changed, true);
           document.removeEventListener('visibilitychange', changed);
+          document.removeEventListener('resume', changed);
+          window.removeEventListener('pageshow', changed);
+          window.removeEventListener('focus', changed);
         };
         const finish = (error, result) => {
           if (finished) return; finished = true; cleanup();
@@ -140,6 +157,10 @@
         // Image completion and returning to a hidden tab need not mutate DOM.
         document.addEventListener('load', changed, true);
         document.addEventListener('visibilitychange', changed);
+        document.addEventListener('resume', changed);
+        window.addEventListener('pageshow', changed);
+        window.addEventListener('focus', changed);
+        activeWaits.add(changed);
         changed();
       });
     }
@@ -158,7 +179,14 @@
           if (error.message === '暂未找到 ChatGPT 输入框，等待网页加载') { await sleep(500); continue; }
           throw error;
         }
-        try { dom.finalCandidate(document, context.baseline, context.user); return context; }
+        try {
+          // Reload can mount the owned user turn before its error card or
+          // answer. An empty candidate is still loading, not evidence that
+          // the original failure recovered. Keep the unused single retry
+          // available until a complete answer or the error surface appears.
+          if (dom.finalCandidate(document, context.baseline, context.user)) return context;
+          await sleep(250); continue;
+        }
         catch (error) {
           if (error.code !== 'CHATGPT_CLOUDFLARE_CHALLENGE') throw error;
           if (!button) { status('已刷新一次：等待原回复的重试按钮或手动处理验证'); await sleep(500); continue; }
@@ -438,9 +466,9 @@
     chrome.runtime.onMessage.addListener((message, sender) => {
       if (message?.type !== 'bridge:wake' || !chrome.runtime.id || sender?.id !== chrome.runtime.id || sender.tab !== undefined) return;
       if (sender.url !== undefined && sender.url !== chrome.runtime.getURL('worker.js')) return;
-      void poll(true);
+      wakeWaits(); void poll(true);
     });
-    const wakePage = () => { void poll(true); };
+    const wakePage = () => { wakeWaits(); void poll(true); };
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') wakePage(); });
     // Restoring a frozen/BFCache document or focusing its window need not
     // produce a visibility change. Reuse the single-flight/readiness checks;

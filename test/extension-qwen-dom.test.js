@@ -7,6 +7,21 @@ function state(doc,body) { const baseline=dom.snapshot(doc);user(doc);const subm
 const candidate=(doc,s)=>dom.finalCandidate(doc,s.baseline,s.submitted);
 function upload(doc,name='bridge-1.png',source) { const input=dom.composer(doc);dom.attachInputImage(doc,input,payload,name);return attachment(doc,name,source); }
 
+test('Qwen reads completed background answers without page focus or painted action controls', () => {
+  const { window: w } = page(), d = w.document;
+  Object.defineProperties(d, { hidden: { value: true, configurable: true }, visibilityState: { value: 'hidden', configurable: true } });
+  d.hasFocus = () => false;
+  const s = state(d, '<div class="qwen-markdown-paragraph">Background answer</div>' + monaco());
+  const row = s.submitted.closest('.qwen-chat-message-select-turn');
+  row.style.contentVisibility = 'auto';
+  d.querySelector('.response-message-footer').style.opacity = '0';
+  Object.defineProperty(s.submitted.querySelector('.chunked-text-renderer-root'), 'innerText', { value: '', configurable: true });
+  Object.defineProperty(d.querySelector('.qwen-markdown'), 'innerText', { value: '', configurable: true });
+  assert.equal(candidate(d, s)?.text, 'Background answer\n\n```python\nprint(1 + 1)\n```');
+  d.querySelector('.send-button use').setAttribute('xlink:href', '#qwpcicon-stop');
+  assert.equal(candidate(d, s), null, 'background state never replaces the explicit completion checks');
+});
+
 test('Qwen prompt ownership reads structured DOM despite a temporarily empty rendered innerText', () => {
   const { window: w } = page(), d = w.document, baseline = dom.snapshot(d);
   const row = user(d, ''), body = row.querySelector('.chunked-text-renderer-root');

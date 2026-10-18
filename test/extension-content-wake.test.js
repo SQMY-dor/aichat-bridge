@@ -18,8 +18,9 @@ const baselineSource = process.env.BRIDGE_INBOUND_BASELINE_SOURCE
 const flush = async () => { await new Promise(resolve => setImmediate(resolve)); };
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 
-async function fixture({ source = productionSource, submittedText, pollGate, startedGate, imagePreparationDelay = 0 } = {}) {
-  const page = new JSDOM('<main></main><div data-composer-body><div data-composer-attachments></div><div data-composer-markdown contenteditable="true" role="textbox"></div><button type="submit" aria-label="发送"></button></div>', { url, runScripts: 'outside-only', pretendToBeVisual: true });
+async function fixture({ source = productionSource, submittedText, pollGate, startedGate, imagePreparationDelay = 0, assistant = 'chatgpt' } = {}) {
+  const pageUrl = { chatgpt: url, claude: 'https://claude.ai/chat/content-wake-fixture', gemini: 'https://gemini.google.com/app/content-wake-fixture', qwen: 'https://chat.qwen.ai/c/content-wake-fixture' }[assistant];
+  const page = new JSDOM('<main></main><div data-composer-body><div data-composer-attachments></div><div data-composer-markdown contenteditable="true" role="textbox"></div><button type="submit" aria-label="发送"></button></div>', { url: pageUrl, runScripts: 'outside-only', pretendToBeVisual: true });
   const win = page.window; const doc = win.document; const input = dom.composer(doc);
   const messages = []; const jobs = []; const listeners = []; const timers = new Map(); const intervalMs = [];
   let now = 1000; let serial = 0; let visibility = 'visible'; let clicks = 0; let readinessChecks = 0;
@@ -70,6 +71,9 @@ async function fixture({ source = productionSource, submittedText, pollGate, sta
   } };
   win.eval(source
     .replace("await import(chrome.runtime.getURL('dom.js'))", 'globalThis.__testDom')
+    .replace("await import(chrome.runtime.getURL('claude-dom.js'))", 'globalThis.__testDom')
+    .replace("await import(chrome.runtime.getURL('gemini-dom.js'))", 'globalThis.__testDom')
+    .replace("await import(chrome.runtime.getURL('qwen-dom.js'))", 'globalThis.__testDom')
     .replace("await import(chrome.runtime.getURL('shared.js'))", 'globalThis.__testShared'));
   await flush();
   return {
@@ -79,7 +83,7 @@ async function fixture({ source = productionSource, submittedText, pollGate, sta
     get readinessChecks() { return readinessChecks; }, get pollCount() { return messages.filter(message => message.type === 'bridge:poll').length; },
     get result() { return messages.find(message => message.type === 'bridge:result'); },
     get error() { return messages.find(message => message.type === 'bridge:error'); },
-    enqueue({ id = 'wake-job', image = false } = {}) { jobs.push({ id, prompt, conversationUrl: url, timeoutMs: 240000, images: image ? [metadata] : [] }); },
+    enqueue({ id = 'wake-job', image = false } = {}) { jobs.push({ id, assistant, prompt, conversationUrl: pageUrl, timeoutMs: 240000, images: image ? [metadata] : [] }); },
     wake(sender = trustedSender, message = { type: 'bridge:wake' }, count = 1) {
       for (let i = 0; i < count; i++) for (const listener of listeners) {
         assert.equal(listener(message, sender), undefined, 'notification acknowledgement cannot wait for polling or the page job');
@@ -91,6 +95,7 @@ async function fixture({ source = productionSource, submittedText, pollGate, sta
       if (type === 'pageshow') Object.defineProperty(event, 'persisted', { value: persisted });
       (type === 'resume' ? doc : win).dispatchEvent(event);
     },
+    async elapseWithoutTimers(ms) { now += ms; await flush(); },
     async advance(ms) {
       const target = now + ms; let steps = 0;
       while (true) {
@@ -302,4 +307,42 @@ test('optional inbound before/after benchmark runs both actual content sources o
     assert.equal(before.startedToClickMs, 700);
     assert.equal(before.queueToClickMs - after.queueToClickMs, 4400);
   }
+});
+
+
+for (const assistant of shared.ASSISTANTS) test(`${assistant}: trusted worker wake finishes a quiet hidden answer while page timers are suspended`, async () => {
+  const x = await fixture({ assistant });
+  try {
+    x.enqueue(); x.wake(); await flush(); await x.advance(700);
+    assert.equal(x.clicks, 1); assert.equal(x.result, undefined);
+    await x.visibility('hidden'); await x.elapseWithoutTimers(1000);
+    assert.equal(x.result, undefined, 'no DOM mutation or timer has completed the stable answer');
+    x.wake({ id: 'foreign-extension' }); await flush();
+    assert.equal(x.result, undefined, 'untrusted messages do not drive the active waiter');
+    x.wake(); await flush();
+    assert.equal(x.result?.text, 'Final answer');
+    assert.equal(x.result.timing.background, true); assert.equal(x.clicks, 1);
+  } finally { x.close(); }
+});
+
+for (const type of ['resume', 'pageshow', 'focus']) test(`${type} resumes the active answer check without waiting for a clamped timer`, async () => {
+  const x = await fixture();
+  try {
+    x.enqueue(); x.wake(); await flush(); await x.advance(700);
+    await x.visibility('hidden'); await x.elapseWithoutTimers(1000);
+    x.lifecycle(type); await flush();
+    assert.equal(x.result?.text, 'Final answer'); assert.equal(x.clicks, 1);
+  } finally { x.close(); }
+});
+
+test('background wake retains completion markers and the original deadline', async () => {
+  const x = await fixture();
+  try {
+    x.enqueue(); x.wake(); await flush(); await x.advance(700);
+    x.doc.querySelector('[data-talvt-turn-state]').setAttribute('data-talvt-turn-state', 'streaming');
+    await flush(); await x.visibility('hidden'); await x.elapseWithoutTimers(1000);
+    x.wake(); await flush(); assert.equal(x.result, undefined);
+    await x.elapseWithoutTimers(240000); x.wake(); await flush();
+    assert.match(x.error?.error || '', /超时/); assert.equal(x.result, undefined); assert.equal(x.clicks, 1);
+  } finally { x.close(); }
 });

@@ -132,6 +132,52 @@ test('a mounted empty user body waits for text while preserving mismatch and add
   assert.throws(() => findSubmittedUser(doc, before, 'Question'), /其他新消息/);
 });
 
+test('ChatGPT waits for a partial prompt without claiming its answer or tolerating edits after confirmation', () => {
+  const doc = page(); const before = snapshot(doc);
+  add(doc, turn('partial', 'Group', '<p>Answer</p>'));
+  const body = doc.querySelector('[data-user-message-bubble]');
+  assert.equal(findSubmittedUser(doc, before, 'Group question'), null);
+  assert.equal(before.submittedUser, undefined);
+  body.textContent = 'Group question';
+  const user = findSubmittedUser(doc, before, 'Group question');
+  assert.equal(finalCandidate(doc, before, user).text, 'Answer');
+  body.textContent = 'Group';
+  assert.throws(() => findSubmittedUser(doc, before, 'Group question'), /不同|被替换/);
+  assert.throws(() => finalCandidate(doc, before, user), /被替换/);
+});
+
+test('ChatGPT submitted text uses complete DOM paragraphs when background innerText is empty or stale', () => {
+  for (const rendered of ['', 'First']) {
+    const doc = page(); const before = snapshot(doc);
+    add(doc, turn('background', '<p>First line</p><p>Second<br>line</p>', '<p>Answer</p>'));
+    const body = doc.querySelector('[data-user-message-bubble]');
+    Object.defineProperty(body, 'innerText', { get: () => rendered });
+    const user = findSubmittedUser(doc, before, 'First line Second line');
+    assert.ok(user); assert.equal(finalCandidate(doc, before, user).text, 'Answer');
+  }
+});
+
+test('explicit ChatGPT prompt body takes priority over earlier generic whitespace wrappers', () => {
+  const doc = page(); const before = snapshot(doc);
+  add(doc, turn('body', 'Group question', '<p>Answer</p>'));
+  const body = doc.querySelector('[data-user-message-bubble]');
+  body.insertAdjacentHTML('beforebegin', '<div class="whitespace-pre-wrap">attachment.png</div>');
+  assert.ok(findSubmittedUser(doc, before, 'Group question'));
+});
+
+test('structural ChatGPT prompt extraction excludes hidden text and action labels', () => {
+  const doc = page(); const before = snapshot(doc);
+  add(doc, turn('body', 'Group <span>question</span><button>Copy</button><span hidden>Hidden</span><span style="display:none">Hidden CSS</span><span aria-hidden="true">Hidden label</span>', '<p>Answer</p>'));
+  assert.ok(findSubmittedUser(doc, before, 'Group question'));
+});
+
+test('ambiguous explicit ChatGPT user bodies cannot authorize a reply', () => {
+  const doc = page(); const before = snapshot(doc);
+  add(doc, turn('ambiguous', 'Group question', '<p>Answer</p>'));
+  doc.querySelector('[data-user-message-bubble]').insertAdjacentHTML('afterend', '<div data-user-message-bubble="true">Different question</div>');
+  assert.throws(() => findSubmittedUser(doc, before, 'Group question'), /正文.*不唯一|多个/);
+});
+
 test('modern completion needs complete state, scoped assistant actions and exactly one final body', () => {
   const doc = page(); const before = snapshot(doc);
   add(doc, turn('new', 'Question', '<p>Partial</p>', 'streaming'));
@@ -280,5 +326,17 @@ test('confirmed prompt text remains authoritative when the same user ID is edite
     doc.querySelector('[data-user-message-bubble="true"]').textContent = 'Edited private question';
     assert.throws(() => finalCandidate(doc, baseline, user), /内容被替换/);
     assert.throws(() => findSubmittedUser(doc, baseline, 'Edited private question'), /内容被替换/, 'the same baseline cannot be rebound to an edited prompt');
+  }
+});
+
+test('a modern pending user cannot claim a generic attachment wrapper even when it matches the prompt', () => {
+  for (const label of ['attachment.png', 'Group question']) {
+    const doc = page(); const before = snapshot(doc);
+    add(doc, turn('pending', '', '<p>Answer</p>'));
+    const body = doc.querySelector('[data-user-message-bubble]');
+    body.insertAdjacentHTML('beforebegin', `<div class="whitespace-pre-wrap">${label}</div>`);
+    body.remove();
+    assert.equal(findSubmittedUser(doc, before, 'Group question'), null);
+    assert.equal(before.submittedUser, undefined);
   }
 });

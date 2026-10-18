@@ -84,6 +84,13 @@ function turnKey(message) {
   // Transcript indices change when older messages load; they are not identities.
   return id ? `${message.matches(USER) ? 'user' : 'assistant'}:${id}` : message;
 }
+function userText(message) {
+  // Background/content-visibility rendering may leave innerText empty even
+  // though this verified prompt root already contains the full message. Read
+  // its structural text with paragraph/BR boundaries, as the Qwen adapter does.
+  // Keep exact matching; never substitute transcript or assistant text.
+  return normalizeText(composerText(message.cloneNode(true)));
+}
 function completedMessage(message) {
   const row = messageRow(message);
   if (!row || message.getAttribute('data-is-streaming') !== 'false' || row.getAttribute('data-perf-row-streaming') === 'true') return false;
@@ -144,7 +151,7 @@ export function findSubmittedUser(doc, baseline, prompt) {
   if (users.length > 1) throw new PageSafetyError('检测到其他新消息，已停止转发，避免混淆回复');
   if (!users.length) return null;
   if (!messageRow(users[0])) throw new PageSafetyError('Claude 新消息结构已变化，已停止转发');
-  const text = normalizeText(composerText(users[0]));
+  const text = userText(users[0]);
   // The row may mount before its prompt. An empty shell does not establish
   // ownership; let the existing bounded confirmation window wait for the text.
   if (!text) return null;
@@ -390,7 +397,7 @@ function answerImages(message, baseline) {
 }
 export function finalCandidate(doc, baseline, user) {
   const users = newUsers(doc, baseline);
-  if (users.length !== 1 || turnKey(users[0]) !== turnKey(user) || normalizeText(composerText(users[0])) !== baseline.submittedText) throw new PageSafetyError('对话出现其他消息或内容被替换，停止转发');
+  if (users.length !== 1 || turnKey(users[0]) !== turnKey(user) || userText(users[0]) !== baseline.submittedText) throw new PageSafetyError('对话出现其他消息或内容被替换，停止转发');
   user = users[0];
   const following = turns(doc, 'assistant').filter(message => !baseline.assistants.has(turnKey(message)) && Boolean(user.compareDocumentPosition(message) & 4) && !isReasoning(message));
   if (following.some(message => [...message.querySelectorAll('[role="alert"], [data-testid="error-message"]')].some(visible))) throw new PageSafetyError('Claude 网页回复失败，请在网页处理；本次不会重新提问');

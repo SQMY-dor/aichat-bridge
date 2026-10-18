@@ -131,6 +131,25 @@ test('Claude waits for an empty new user row to render before confirming exact t
   assert.throws(() => dom.findSubmittedUser(doc, baseline, 'Question'), /不同/);
 });
 
+test('Claude confirms and reads a background turn from its prompt DOM when rendered innerText is empty', () => {
+  const doc = page(); const baseline = dom.snapshot(doc);
+  Object.defineProperties(doc, { hidden: { value: true, configurable: true }, visibilityState: { value: 'hidden', configurable: true } });
+  doc.hasFocus = () => false;
+  add(doc, user('first line</p><p>second<br>third'));
+  const current = dom.turns(doc, 'user').at(-1), prompt = 'first line\nsecond\nthird';
+  Object.defineProperty(current, 'innerText', { value: '', configurable: true });
+  assert.equal(dom.findSubmittedUser(doc, baseline, prompt), current);
+  add(doc, answer('<p>Background answer</p>'));
+  const message = dom.turns(doc, 'assistant').at(-1);
+  const row = message.closest('[data-testid="transcript-row"]');
+  row.style.contentVisibility = 'auto';
+  row.querySelector('[data-testid="message-actions"]').style.opacity = '0';
+  Object.defineProperty(message, 'innerText', { value: '', configurable: true });
+  assert.equal(dom.finalCandidate(doc, baseline, current)?.text, 'Background answer');
+  current.querySelector('p').textContent = 'Changed';
+  assert.throws(() => dom.finalCandidate(doc, baseline, current), /内容被替换/);
+});
+
 test('Claude history loading preserves the anchor, but replacement without a stable identity fails closed', () => {
   const doc = page(); const state = submitted(doc);
   doc.querySelector('main').insertAdjacentHTML('afterbegin', user('Prepended history'));

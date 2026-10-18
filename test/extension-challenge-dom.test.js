@@ -95,3 +95,16 @@ test('ChatGPT clean conversation waits until its model selector has recovered', 
   form.insertAdjacentHTML('beforeend','<button role="combobox" aria-label="Unable to load ChatGPT models"></button>');
   assert.throws(()=>dom.assertReady(doc),/模型尚未加载/);form.querySelector('button').setAttribute('aria-label','Choose model');assert.ok(dom.assertReady(doc));
 });
+
+test('reload waits for the known message text to mount completely before restoring retry ownership', () => {
+  const x = fixture(); const checkpoint = dom.challengeCheckpoint(x.doc, x.baseline, x.user, 'Hello');
+  const body = x.user.querySelector('.whitespace-pre-wrap');
+  for (const text of ['', 'Hel']) {
+    body.textContent = text;
+    assert.equal(dom.restoreChallengeContext(x.doc, checkpoint), null);
+  }
+  body.textContent = 'Hello';
+  assert.ok(dom.restoreChallengeContext(x.doc, checkpoint));
+  body.textContent = 'Hello different';
+  assert.throws(() => dom.restoreChallengeContext(x.doc, checkpoint), /消息已变化/);
+});

@@ -128,7 +128,12 @@ export function restoreChallengeContext(doc, checkpoint) {
   const users = turns(doc, 'user');
   const matches = users.filter(node => turnKey(node) === checkpoint.userKey);
   if (!matches.length) return null;
-  if (matches.length !== 1 || users.at(-1) !== matches[0] || userText(matches[0]) !== checkpoint.prompt) throw new PageSafetyError('刷新后消息已变化，已停止自动重试');
+  if (matches.length !== 1 || users.at(-1) !== matches[0]) throw new PageSafetyError('刷新后消息已变化，已停止自动重试');
+  const text = userText(matches[0]);
+  // Reload can mount the saved message identity before all of its text. Do
+  // not restore ownership or retry until the entire original prompt matches.
+  if (text !== checkpoint.prompt && checkpoint.prompt.startsWith(text)) return null;
+  if (text !== checkpoint.prompt) throw new PageSafetyError('刷新后消息已变化，已停止自动重试');
   const user = matches[0];
   const baseline = snapshot(doc);
   baseline.users.delete(checkpoint.userKey);
@@ -222,11 +227,48 @@ export function newUsers(doc, baseline) {
   return following.filter(node => !baseline.users.has(turnKey(node)));
 }
 function userText(node) {
-  const body = node.querySelector('[data-user-message-bubble="true"], .whitespace-pre-wrap, [data-testid="user-message"]');
+  let body = null;
+  // A selector list is in document order, not priority order. An attachment
+  // label may share the generic whitespace class before the real bubble.
+  const modern = node.matches('[data-chatgpt-search-unit-key$=":user"]');
+  const selectors = ['[data-user-message-bubble="true"]', '[data-testid="user-message"]'];
+  if (!modern) selectors.push('.whitespace-pre-wrap');
+  for (const selector of selectors) {
+    const matches = [...node.querySelectorAll(selector)];
+    if (matches.length > 1) throw new PageSafetyError('网页用户消息正文不唯一，已停止转发');
+    if (matches.length) { body = matches[0]; break; }
+  }
   // A modern turn can expose action controls before the bubble mounts. Those
   // labels are not the prompt; wait for the observed message body instead.
-  if (!body && node.matches('[data-chatgpt-search-unit-key$=":user"]')) return '';
-  return normalizeText(editableText(body || node));
+  if (!body && modern) return '';
+  // Read structure rather than connected innerText: a background renderer
+  // may expose stale/empty painted text while its DOM paragraphs are complete.
+  // Ignore visibility outside this body when checking identity. Read styles
+  // from connected descendants (Chromium doesn't resolve styles on detached
+  // clones); completion still checks the original conversation's visibility.
+  const root = body || node;
+  const styles = scanStyles || new WeakMap();
+  const styleOf = item => {
+    if (!styles.has(item)) {
+      const style = item.ownerDocument.defaultView.getComputedStyle(item);
+      styles.set(item, { display: style.display, visibility: style.visibility });
+    }
+    return styles.get(item);
+  };
+  const inheritedHidden = styleOf(root).visibility === 'hidden';
+  const read = item => {
+    if (item.nodeType === 3) return item.textContent;
+    if (item.nodeType !== 1 || item.matches('button, [role="button"], script, style, svg, input, textarea')) return '';
+    if (item !== root) {
+      const style = styleOf(item);
+      if (item.hidden || item.getAttribute('aria-hidden') === 'true' || style.display === 'none' ||
+          (!inheritedHidden && style.visibility === 'hidden')) return '';
+    }
+    if (item.tagName === 'BR') return '\n';
+    const text = [...item.childNodes].map(read).join('');
+    return ['P', 'DIV', 'LI', 'BLOCKQUOTE'].includes(item.tagName) ? text + '\n' : text;
+  };
+  return normalizeText(read(root));
 }
 function sameModernTurn(user, assistant) {
   const userTurn = user.closest('[data-turn-key]');
@@ -251,14 +293,23 @@ export function findSubmittedUser(doc, baseline, prompt) {
   if (users.length > 1) throw new PageSafetyError('检测到其他新消息，已停止转发，避免混淆回复');
   if (!users.length) return null;
   const text = userText(users[0]);
-  // The new message identity can mount before its text. The caller's bounded
-  // confirmation loop may wait for that render, but cannot own an empty turn.
-  if (!text) return null;
-  if (text !== normalizeText(prompt)) throw new PageSafetyError('新增网页消息与本次群消息不同，已停止转发');
+  const expected = normalizeText(prompt);
+  // The new identity may mount with empty text or an initial chunk. Only an
+  // unconfirmed strict prefix may wait within the original confirmation
+  // deadline. It never claims the turn or authorizes its answer.
+  if (!baseline.submittedUser && text !== expected && expected.startsWith(text)) return null;
+  if (text !== expected) throw new PageSafetyError('新增网页消息与本次群消息不同，已停止转发');
   const key = turnKey(users[0]);
   if (baseline.submittedUser && (baseline.submittedUser.key !== key || baseline.submittedUser.prompt !== text)) throw new PageSafetyError('已确认的网页消息内容被替换，已停止转发');
   baseline.submittedUser = { key, prompt: text };
   return users[0];
+}
+export function submissionWaitReason(doc, baseline, prompt) {
+  const users = newUsers(doc, baseline);
+  if (!users.length) return 'ChatGPT 尚未出现可识别的新提问';
+  if (users.length !== 1) return 'ChatGPT 出现多个新提问';
+  // Fixed labels and lengths only; never expose group/chat text in diagnostics.
+  return `ChatGPT 提问正文尚未完整（已识别 ${userText(users[0]).length}/${normalizeText(prompt).length} 字符）`;
 }
 const REASONING = 'details, [data-channel="analysis"], [data-message-channel="analysis"], [data-testid*="thought"], [data-testid*="reasoning"], [data-testid*="thinking"], [data-role="analysis"], [data-chatgpt-search-unit-key$=":analysis"], [data-content-search-unit-key$=":analysis"], [data-markdown-text-style="reasoning"], [aria-hidden="true"]';
 function isReasoning(node) { return Boolean(node.closest(REASONING)); }

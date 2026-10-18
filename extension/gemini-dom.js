@@ -63,6 +63,21 @@ function publicBodies(message) {
 function enabled(button) {
   return visible(button) && !button.disabled && !button.matches(':disabled') && !button.closest('[inert], [aria-disabled="true"]');
 }
+function completionControlPresent(node, scope) {
+  if (!node || !scope?.contains(node) || !visible(scope) || isReasoning(node)) return false;
+  // Native response/download actions can use visibility:hidden while their
+  // message is not hovered. We only read these controls as completion markers;
+  // they are never clicked. Keep the message/body visible, and still reject
+  // explicitly concealed templates, detached actions and disabled controls.
+  for (let current = node; current && current !== scope; current = current.parentElement) {
+    if (current.hidden || current.getAttribute('aria-hidden') === 'true' || current.hasAttribute('inert') ||
+        current.ownerDocument.defaultView.getComputedStyle(current).display === 'none') return false;
+  }
+  return true;
+}
+function completionControlEnabled(button, scope) {
+  return completionControlPresent(button, scope) && !button.disabled && !button.matches(':disabled') && !button.closest('[inert], [aria-disabled="true"]');
+}
 function generatedImages(body) {
   const all = [...body.querySelectorAll('generated-image')].filter(node => visible(node) && !isReasoning(node));
   const wrappers = [...body.querySelectorAll(GENERATED)].filter(node => visible(node) && !isReasoning(node));
@@ -73,7 +88,7 @@ function generatedImages(body) {
     if (singles.length !== 1) return null;
     const images = singles[0].querySelectorAll(':scope > .image-container > .overlay-container > button.image-button > img.image.loaded');
     const downloads = singles[0].querySelectorAll(':scope > .image-container > .overlay-container > .generated-image-controls > download-generated-image-button > [data-test-id="download-generated-image-button"] > button');
-    if (images.length !== 1 || !visible(images[0]) || downloads.length !== 1 || !enabled(downloads[0]) || wrapper.querySelectorAll('img').length !== 1) return null;
+    if (images.length !== 1 || !visible(images[0]) || downloads.length !== 1 || !completionControlEnabled(downloads[0], wrapper) || wrapper.querySelectorAll('img').length !== 1) return null;
     result.push(images[0]);
   }
   return result;
@@ -83,15 +98,15 @@ function completedMessage(message) {
   if (!row?.id || bodies.length !== 1 || bodies[0].getAttribute('aria-busy') !== 'false') return false;
   if ([...message.querySelectorAll('[role="alert"]')].some(visible)) return false;
   const footers = [...message.querySelectorAll('.response-footer.complete')].filter(node => visible(node) && !isReasoning(node) && node.closest(ASSISTANT) === message && !bodies[0].contains(node));
-  const actions = [...message.querySelectorAll('message-actions')].filter(node => visible(node) && !isReasoning(node) && node.closest(ASSISTANT) === message && !bodies[0].contains(node));
+  const actions = [...message.querySelectorAll('message-actions')].filter(node => completionControlPresent(node, message) && node.closest(ASSISTANT) === message && !bodies[0].contains(node));
   if (footers.length !== 1 || actions.length !== 1 || !(bodies[0].compareDocumentPosition(actions[0]) & 4)) return false;
-  const retries = [...actions[0].querySelectorAll('regenerate-button [data-test-id="regenerate-button"] button')].filter(enabled);
+  const retries = [...actions[0].querySelectorAll('regenerate-button [data-test-id="regenerate-button"] button')].filter(button => completionControlEnabled(button, message));
   if (retries.length !== 1) return false;
   // Text responses have a response copy action. Image-only Gemini responses
   // omit it; their complete footer + retry action + loaded image/download
   // structure is a separate observed completion path. Overlay/code copy alone
   // is never a completion signal.
-  const copies = [...actions[0].querySelectorAll('copy-button button')].filter(enabled);
+  const copies = [...actions[0].querySelectorAll('copy-button button')].filter(button => completionControlEnabled(button, message));
   if (copies.length === 1) return true;
   if (copies.length) return false;
   const images = generatedImages(bodies[0]);

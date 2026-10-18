@@ -13,7 +13,7 @@ const url = 'https://chatgpt.com/c/challenge-fixture';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 const failedTurn = '<div data-turn-key="current"><div data-talvt-turn-state="error"><div data-message-author-role="user" data-message-id="current-user"><div class="whitespace-pre-wrap">Hello</div></div><div class="failure"><span>cloudflare_challenge</span><button>重试</button></div></div></div>';
 const checkpoint = { userKey: 'message:current-user', prompt: 'Hello', imageSources: [] };
-async function fixture({ recovery = false, verification = false, outcome = 'success', draft = '', changed = false } = {}) {
+async function fixture({ recovery = false, verification = false, outcome = 'success', draft = '', changed = false, recoveryCardDelayMs = 0 } = {}) {
   const page = new JSDOM(`<main>${recovery ? failedTurn : ''}</main><form><textarea id="prompt-textarea"></textarea><button type="button" data-testid="send-button">Send</button></form>`, { url, runScripts: 'outside-only', pretendToBeVisual: true });
   const win = page.window; const doc = win.document; const messages = []; const timers = new Map();
   let now = 1000; let serial = 0; let reloads = 0; let sends = 0; let retries = 0; let offered = false;
@@ -36,6 +36,10 @@ async function fixture({ recovery = false, verification = false, outcome = 'succ
     }, 1000);
   });
   if (recovery) wireRetry();
+  if (recovery && recoveryCardDelayMs > 0) {
+    const failure = doc.querySelector('.failure'); failure.remove();
+    schedule(() => doc.querySelector('[data-talvt-turn-state]').append(failure), recoveryCardDelayMs);
+  }
   doc.querySelector('[data-testid="send-button"]').addEventListener('click', () => {
     sends++; input.value = ''; doc.querySelector('main').innerHTML = failedTurn; wireRetry();
   });
@@ -83,6 +87,42 @@ test('after refresh the original failure is retried once and its complete answer
     assert.equal(x.messages.filter(m => m.type === 'bridge:result').length, 1);
     assert.equal(x.messages.find(m => m.type === 'bridge:result').text, 'Recovered answer');
     assert.equal(x.messages.some(m => ['bridge:started', 'bridge:error', 'bridge:input-image', 'bridge:challenge-prepare'].includes(m.type)), false);
+  } finally { x.close(); }
+});
+test('recovery waits for a delayed error card instead of mistaking an incomplete DOM for recovered generation', async () => {
+  const x = await fixture({ recovery: true, recoveryCardDelayMs: 800 });
+  try {
+    await x.advance(500);
+    assert.equal(x.retries, 0); assert.equal(x.messages.some(m => m.type === 'bridge:error'), false);
+    await x.advance(4500);
+    assert.equal(x.retries, 1); assert.equal(x.sends, 0); assert.equal(x.reloads, 0);
+    assert.equal(x.messages.filter(m => m.type === 'bridge:challenge-retry').length, 1);
+    assert.equal(x.messages.filter(m => m.type === 'bridge:result').length, 1);
+    assert.equal(x.messages.find(m => m.type === 'bridge:result').text, 'Recovered answer');
+    assert.equal(x.messages.some(m => m.type === 'bridge:error'), false);
+  } finally { x.close(); }
+});
+test('a reloaded answer that completes without an error card is delivered without using the retry', async () => {
+  const x = await fixture({ recovery: true, recoveryCardDelayMs: 30000 });
+  try {
+    await x.advance(500);
+    const state = x.doc.querySelector('[data-talvt-turn-state]'); state.dataset.talvtTurnState = 'complete';
+    state.insertAdjacentHTML('beforeend', '<div data-message-author-role="assistant" data-message-id="already-recovered"><div data-markdown-text-style="assistant-message">Already recovered</div></div><div class="turn-action-controls"><button aria-label="Copy">Copy</button></div>');
+    await x.advance(2000);
+    assert.equal(x.retries, 0); assert.equal(x.sends, 0); assert.equal(x.reloads, 0);
+    assert.equal(x.messages.filter(m => m.type === 'bridge:result').length, 1);
+    assert.equal(x.messages.find(m => m.type === 'bridge:result').text, 'Already recovered');
+    assert.equal(x.messages.some(m => m.type === 'bridge:challenge-retry' || m.type === 'bridge:error'), false);
+  } finally { x.close(); }
+});
+test('incomplete recovery DOM stays bounded by the original deadline and a late error card cannot retry an expired job', async () => {
+  const x = await fixture({ recovery: true, recoveryCardDelayMs: 25000 });
+  try {
+    await x.advance(30000);
+    assert.equal(x.retries, 0); assert.equal(x.sends, 0); assert.equal(x.reloads, 0);
+    assert.equal(x.messages.filter(m => m.type === 'bridge:error').length, 1);
+    assert.match(x.messages.find(m => m.type === 'bridge:error').error, /超时/);
+    assert.equal(x.messages.some(m => m.type === 'bridge:challenge-retry' || m.type === 'bridge:result'), false);
   } finally { x.close(); }
 });
 test('persistent challenge failure stops after the single retry and never enters a refresh loop', async () => {

@@ -2,11 +2,16 @@ import { ASSISTANTS, ASSISTANT_NAMES, ASSISTANT_ORIGINS, conversationUrl, assist
 import { decodeImagePayload, validateInputImages, MAX_IMAGES, MAX_TOTAL_IMAGE_BYTES } from './dom.js';
 const JOB_PREFIX = 'bot.bridge.job.';
 const NOTICE_PREFIX = 'bot.bridge.notice.';
+const TAB_PROTECTION_PREFIX = 'bot.bridge.tab-protection.';
 const HOST_TIMEOUT_MS = 25_000;
 const locks = new Map();
 let creatingHost;
 const platformTails = new Map();
 let wakeTimer; let wakeRunning = false; let wakePending = false;
+let pageWakeTimer;
+let pageWakeGeneration = 0;
+let pageWakePending = false;
+const protectedTabs = new Map();
 function validPlatform(value) { return value === 'qq' || value === 'feishu'; }
 function platformLocked(assistant, fn) {
   const pending = (platformTails.get(assistant) || Promise.resolve()).then(fn);
@@ -106,8 +111,91 @@ async function getJob(tabId) {
   if (job) assistantId(job.assistant);
   return job;
 }
-async function putJob(job) { await chrome.storage.local.set({ [key(job.tabId)]: job }); }
+async function putJob(job) { await chrome.storage.local.set({ [key(job.tabId)]: job }); if (livePageJob(job)) schedulePageWakePulse(); }
 async function dropJob(tabId) { await chrome.storage.local.remove(key(tabId)); }
+export function stopPageWakePulse() { pageWakeGeneration++; clearTimeout(pageWakeTimer); pageWakeTimer = undefined; pageWakePending = false; }
+function schedulePageWakePulse() {
+  // A lease can arrive after an in-flight pass took an empty storage snapshot.
+  // Remember that request even while the current loop still owns its timer.
+  pageWakePending = true;
+  if (pageWakeTimer !== undefined) return;
+  const generation = pageWakeGeneration;
+  pageWakeTimer = setTimeout(async () => {
+    // Keep the marker set until this pass settles so job updates cannot create
+    // concurrent pulse loops. No status RPCs or model submissions occur here.
+    let pending = false; pageWakePending = false;
+    try {
+      const all = await chrome.storage.local.get(null);
+      const jobs = Object.entries(all).filter(([k, job]) => k.startsWith(JOB_PREFIX) && livePageJob(job) && job.browserId === all.browserId);
+      const results = await Promise.allSettled(jobs.map(([, job]) => wakeBoundTab(job.tabId, job.conversationUrl, job.assistant)));
+      pending = results.some(result => result.status === 'fulfilled' && result.value === true);
+    } catch { /* A failed pass is retried by the durable maintenance alarm. */ }
+    finally { if (generation === pageWakeGeneration) { pageWakeTimer = undefined; if (pending || pageWakePending) schedulePageWakePulse(); } }
+  }, 1000);
+  // Node-based worker harnesses must not be kept alive by a Chrome-only hint.
+  pageWakeTimer?.unref?.();
+}
+function livePageJob(job) {
+  return recoverableLease(job) || (['starting', 'started'].includes(job?.state) && Number.isFinite(job.expiresAt) && job.expiresAt > Date.now());
+}
+async function protectTabForJob(job, tab) {
+  if (tab.id !== job.tabId || conversationUrl(tab.url, job.assistant) !== job.conversationUrl) return;
+  const protectionKey = TAB_PROTECTION_PREFIX + tab.id;
+  let protection = (await chrome.storage.local.get(protectionKey))[protectionKey];
+  if (protection && (protection.tabId !== tab.id || protection.browserId !== job.browserId || protection.assistant !== job.assistant ||
+      protection.conversationUrl !== job.conversationUrl || protection.autoDiscardable !== true)) {
+    await chrome.storage.local.remove(protectionKey); protectedTabs.delete(tab.id); protection = null;
+  }
+  if (tab.autoDiscardable !== true) {
+    if (tab.autoDiscardable === false && protection?.token) protectedTabs.set(tab.id, protection.token);
+    return;
+  }
+  protection ||= { tabId: tab.id, browserId: job.browserId, assistant: job.assistant, conversationUrl: job.conversationUrl, autoDiscardable: true, token: crypto.randomUUID() };
+  if (protection.jobId !== job.id) { protection.jobId = job.id; protection.attempts = 0; }
+  // A transient tabs API failure must not leave the whole task unprotected,
+  // but persistent failures should not generate an unbounded maintenance loop.
+  if ((protection.attempts || 0) >= 3) return;
+  protection.attempts = (protection.attempts || 0) + 1;
+  await chrome.storage.local.set({ [protectionKey]: protection });
+  await chrome.tabs.update(tab.id, { autoDiscardable: false });
+  protectedTabs.set(tab.id, protection.token);
+}
+async function restoreTabProtection(tabId) {
+  const protectionKey = TAB_PROTECTION_PREFIX + tabId;
+  const protection = (await chrome.storage.local.get(protectionKey))[protectionKey];
+  if (!protection) return;
+  const cfg = await config();
+  const valid = protection.tabId === tabId && protection.autoDiscardable === true && protection.browserId === cfg.browserId &&
+    ASSISTANTS.includes(protection.assistant) && conversationUrl(protection.conversationUrl, protection.assistant) === protection.conversationUrl;
+  if (!valid) { await chrome.storage.local.remove(protectionKey); protectedTabs.delete(tabId); return; }
+  let tab;
+  try { tab = await chrome.tabs.get(tabId); }
+  catch (error) {
+    // A closed tab may outlive its onRemoved event in durable storage. Only a
+    // definite missing-tab response retires ownership; transient API failures
+    // retain the record so the maintenance alarm can restore it later.
+    if (/^(?:No tab(?: with id:\s*-?\d+\.?)?|Invalid tab ID:\s*-?\d+\.?)$/i.test(String(error?.message || ''))) {
+      await chrome.storage.local.remove(protectionKey); protectedTabs.delete(tabId);
+    }
+    return;
+  }
+  const knownTab = protection.token && protectedTabs.get(tabId) === protection.token;
+  // Across worker restarts, only the same browser and exact conversation can
+  // prove ownership. In this worker, a successful protection also permits
+  // restoring the tab immediately after an observed navigation.
+  if (tab.id !== tabId || (!knownTab && conversationUrl(tab.url, protection.assistant) !== protection.conversationUrl)) {
+    await chrome.storage.local.remove(protectionKey); protectedTabs.delete(tabId); return;
+  }
+  try { await chrome.tabs.update(tabId, { autoDiscardable: true }); }
+  catch { return; } // Retain the durable record for the maintenance retry.
+  await chrome.storage.local.remove(protectionKey);
+  protectedTabs.delete(tabId);
+}
+async function releasePageResources(job) {
+  // Tab protection is best-effort cleanup, never a prerequisite for reporting
+  // the task's durable result/error to the bot transport.
+  try { await restoreTabProtection(job.tabId); } catch { /* Maintenance retries the retained record. */ }
+}
 function identity(job) { return { assistant: job.assistant, platform: job.platform, leaseToken: job.leaseToken, browserId: job.browserId, tabId: job.tabId, conversationUrl: job.conversationUrl }; }
 function terminal(error) { return Number(error.status) >= 400 && Number(error.status) < 500 && ![408, 429].includes(Number(error.status)); }
 async function notice(job, error) { await chrome.storage.local.set({ [noticeKey(job)]: { assistant: job.assistant, platform: job.platform, error: safeError(error), at: Date.now(), tabId: job.tabId, ...(job.diagnostics ? { diagnostics: job.diagnostics } : {}), ...(job.idleRefresh ? { idleRefreshMs: job.idleRefresh.idleMs, idleRefreshResumed: job.idleRefresh.phase === 'resumed' } : {}) } }); }
@@ -115,6 +203,7 @@ async function failJob(job, error) {
   job.state = 'error-pending'; job.error = safeError(error); delete job.prompt; delete job.text; delete job.images;
   delete job.challengeRecovery; delete job.promptDigest;
   await putJob(job);
+  await releasePageResources(job);
   try { await api(`/v1/jobs/${job.id}/error`, { ...identity(job), error: job.error }); }
   catch (failure) { if (!terminal(failure)) throw failure; }
   await notice(job, job.error);
@@ -225,6 +314,7 @@ async function content(message, sender) {
             await failJob(existing, '等待 AI 回复超时');
             return { job: null, busy: true };
           }
+          await protectTabForJob(existing, tab).catch(() => {});
           const job = pageJob(existing);
           if (job.images.length && (!Array.isArray(message.capabilities) || !message.capabilities.includes('image-input-v1'))) throw new Error('当前网页扩展不支持输入图片，请手动刷新对应 AI 网页');
           return { job };
@@ -259,6 +349,7 @@ async function content(message, sender) {
         const timeoutMs = Math.max(1000, Math.min(Number(j.timeoutMs) || 600000, 600000));
         const job = { id: j.id, assistant, platform: j.platform, leaseToken: j.leaseToken, browserId: cfg.browserId, tabId: tab.id, conversationUrl: url, sessionId: message.sessionId, state: 'leased', prompt: j.prompt, inputImages, expiresAt: Date.now() + timeoutMs };
         await putJob(job);
+        await protectTabForJob(job, tab).catch(() => {});
         await chrome.storage.local.remove(noticeKey(job));
         // Page receives neither application credentials nor browser/lease identity.
         return { job: pageJob(job) };
@@ -345,6 +436,7 @@ async function content(message, sender) {
       delete existing.challengeRecovery; delete existing.promptDigest;
       if (!existing.timing) { const timing = resultTiming(message.timing); if (timing) existing.timing = timing; }
       await putJob(existing);
+      await releasePageResources(existing);
       try { return await deliver(existing); }
       catch {
         // A permanent rejection may still need durable host cleanup. Report
@@ -385,9 +477,10 @@ async function wakeAssistantTabs(assistant, cfg) {
 }
 async function wakeBoundTab(tabId, url, assistant) {
   const tab = await chrome.tabs.get(tabId);
-  if (tab.id !== tabId || conversationUrl(tab.url, assistant) !== url) return;
+  if (tab.id !== tabId || conversationUrl(tab.url, assistant) !== url) return false;
   // A suspended receiver may never acknowledge. A hint must not block recovery.
   chrome.tabs.sendMessage(tabId, { type: 'bridge:wake' }, { frameId: 0 }).catch(() => {});
+  return true;
 }
 async function wakeQueuedTabs() {
   const cfg = await config();
@@ -528,21 +621,35 @@ async function maintenance() {
   const browserId = all.browserId;
   await Promise.allSettled(Object.entries(all).filter(([k]) => k.startsWith(JOB_PREFIX)).map(([, initial]) => locked(initial.tabId, async () => {
     const job = await getJob(initial.tabId); if (!job) return;
-    if (recoverableLease(job) && job.browserId === browserId && Number.isInteger(job.tabId) && job.tabId >= 0 && conversationUrl(job.conversationUrl, job.assistant) === job.conversationUrl) {
-      // A leased job is absent from queuedChatIds; recover it independently.
+    if (livePageJob(job) && job.browserId === browserId && Number.isInteger(job.tabId) && job.tabId >= 0 && conversationUrl(job.conversationUrl, job.assistant) === job.conversationUrl) {
+      // Leased and executing jobs are absent from queuedChatIds. A wake only
+      // rechecks the page's current wait; it never submits another question.
+      await protectTabForJob(job, await chrome.tabs.get(job.tabId)).catch(() => {});
       await wakeBoundTab(job.tabId, job.conversationUrl, job.assistant);
+      schedulePageWakePulse();
     }
-    if (job.state === 'result-pending') return deliver(job);
+    if (job.state === 'result-pending') { await releasePageResources(job); return deliver(job); }
     if (job.state === 'error-pending') return failJob(job, job.error);
     if (job.expiresAt <= Date.now()) return failJob(job, '等待 AI 回复超时；未重复提交网页');
   })));
+  await Promise.allSettled(Object.entries(all).filter(([k]) => k.startsWith(TAB_PROTECTION_PREFIX)).map(([, protection]) => locked(protection.tabId, async () => {
+    const job = await getJob(protection.tabId);
+    if (!livePageJob(job)) await restoreTabProtection(protection.tabId);
+  })));
 }
 chrome.alarms.onAlarm.addListener(alarm => { if (alarm.name === 'bot-bridge-maintenance') maintenance().catch(() => {}); });
-chrome.tabs.onRemoved.addListener(tabId => { locked(tabId, async () => { const job = await getJob(tabId); if (job && job.state !== 'result-pending') await failJob(job, '绑定的 AI 标签页已关闭'); }).catch(() => {}); });
+chrome.tabs.onRemoved.addListener(tabId => { locked(tabId, async () => { protectedTabs.delete(tabId); await chrome.storage.local.remove(TAB_PROTECTION_PREFIX + tabId); const job = await getJob(tabId); if (job && job.state !== 'result-pending') await failJob(job, '绑定的 AI 标签页已关闭'); }).catch(() => {}); });
 chrome.tabs.onUpdated.addListener((tabId, change) => {
-  if (change.status === 'complete' || change.frozen === false || change.discarded === false) scheduleWorkWake();
-  if (!change.url) return;
-  locked(tabId, async () => { const job = await getJob(tabId); if (job && job.state !== 'result-pending' && conversationUrl(change.url, job.assistant) !== job.conversationUrl) await failJob(job, '绑定标签页切换了对话，任务中止'); }).catch(() => {});
+  const resumed = change.status === 'complete' || change.frozen === false || change.discarded === false;
+  if (resumed) scheduleWorkWake();
+  if (!change.url && !resumed) return;
+  locked(tabId, async () => {
+    const job = await getJob(tabId);
+    if (change.url && job && job.state !== 'result-pending' && conversationUrl(change.url, job.assistant) !== job.conversationUrl) await failJob(job, '绑定标签页切换了对话，任务中止');
+    else if (resumed && livePageJob(job) && job.browserId === (await config()).browserId) {
+      await wakeBoundTab(tabId, job.conversationUrl, job.assistant); schedulePageWakePulse();
+    }
+  }).catch(() => {});
 });
 chrome.action.onClicked.addListener(() => { chrome.runtime.openOptionsPage(); });
 chrome.runtime.onInstalled.addListener(() => { ready.then(() => chrome.runtime.openOptionsPage()).catch(() => {}); });
