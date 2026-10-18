@@ -784,14 +784,33 @@ test('host startup failure is retryable without sending configuration or clearin
   assert.equal(x.calls[0].path, '/v1/status');
 });
 
-test('25-second start timeout rejects submission and ignores a late successful acknowledgement', async t => {
+test('25-second start timeout rejects submission and ignores a late successful acknowledgement', { timeout: 10000 }, async t => {
+  const digestEntered = Promise.withResolvers();
+  const releaseDigest = Promise.withResolvers();
+  const hostRequestReceived = Promise.withResolvers();
   let acknowledge;
-  const x = await setup({ request: path => path.endsWith('/started') ? new Promise(resolve => { acknowledge = resolve; }) : undefined });
+  const x = await setup({ request: path => path.endsWith('/started') ? new Promise(resolve => {
+    acknowledge = resolve; hostRequestReceived.resolve();
+  }) : undefined });
+  const nativeDigest = crypto.subtle.digest.bind(crypto.subtle);
+  t.mock.method(crypto.subtle, 'digest', async (...args) => {
+    digestEntered.resolve();
+    await releaseDigest.promise;
+    return nativeDigest(...args);
+  });
   t.mock.timers.enable({ apis: ['setTimeout'] });
   await x.send({ type: 'bridge:poll' });
   let finished = false;
   const starting = x.send({ type: 'bridge:started', jobId: 'job-1' }).then(result => { finished = true; return result; });
+  const endedBeforeHost = starting.then(() => { throw new Error('Start request finished before the host received /started'); });
+  await Promise.race([digestEntered.promise, endedBeforeHost]);
+  // WebCrypto finishes outside the JS microtask queue. Two event-loop turns
+  // never prove hashing has finished or the host timeout has started.
   await tick(); await tick();
+  assert.equal(x.calls.filter(call => call.path.endsWith('/started')).length, 0);
+  assert.equal(finished, false);
+  releaseDigest.resolve();
+  await Promise.race([hostRequestReceived.promise, endedBeforeHost]);
   assert.equal(x.calls.filter(call => call.path.endsWith('/started')).length, 1);
   t.mock.timers.tick(24999); await tick();
   assert.equal(finished, false);
