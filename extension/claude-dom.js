@@ -91,15 +91,41 @@ function userText(message) {
   // Keep exact matching; never substitute transcript or assistant text.
   return normalizeText(composerText(message.cloneNode(true)));
 }
+function publicBodies(message) {
+  // Current transcript-engine prose no longer carries data-perf-reply-text.
+  // Keep both observed layouts scoped to the answer, outside thinking/actions.
+  return [...message.querySelectorAll('[data-perf-reply-text].standard-markdown, [data-transcript-engine-root] > [data-cds="Prose"] > .standard-markdown')].filter(node =>
+    visible(node) && !isReasoning(node) && node.closest(ASSISTANT) === message &&
+    !node.closest('[data-testid="message-actions"]') &&
+    !node.parentElement?.closest('[data-perf-reply-text], .standard-markdown, pre, code'));
+}
 function completedMessage(message) {
   const row = messageRow(message);
   if (!row || message.getAttribute('data-is-streaming') !== 'false' || row.getAttribute('data-perf-row-streaming') === 'true') return false;
   if ([...message.querySelectorAll('[role="alert"], [data-testid="error-message"]')].some(visible)) return false;
-  const bars = [...row.querySelectorAll('[data-testid="message-actions"][role="toolbar"]')].filter(bar => visible(bar) && bar.closest(ROW) === row && !message.contains(bar));
-  if (bars.length !== 1 || !(message.compareDocumentPosition(bars[0]) & 4)) return false;
+  const bars = [...row.querySelectorAll('[data-testid="message-actions"][role="toolbar"]')].filter(bar =>
+    visible(bar) && bar.closest(ROW) === row && !isReasoning(bar) &&
+    !bar.closest('[data-cds="Prose"], .standard-markdown, pre, code'));
+  if (bars.length !== 1) return false;
+  const bar = bars[0], nested = message.contains(bar);
+  if (nested) {
+    const bodies = publicBodies(message);
+    // The current MessageActions toolbar lives inside AssistantMessage, after
+    // its public prose. A toolbar embedded in answer/code text is not trusted.
+    if (!message.matches('[data-cds="AssistantMessage"]') || !bar.matches('[data-cds="MessageActions"]') ||
+        bar.closest(ASSISTANT) !== message || bodies.length !== 1 ||
+        !(bodies[0].compareDocumentPosition(bar) & 4)) return false;
+  } else if (bar.closest(ASSISTANT) || !(message.compareDocumentPosition(bar) & 4)) return false;
   // A code-block copy control is never a completion signal. Require both
   // response actions in the same row and explicit stopped-stream state.
-  return ['action-bar-copy', 'action-bar-retry'].every(id => [...bars[0].querySelectorAll(`button[data-testid="${id}"]`)].some(enabled));
+  const buttons = [...bar.querySelectorAll('button')].filter(button =>
+    button.closest('[data-testid="message-actions"][role="toolbar"]') === bar && !isReasoning(button) &&
+    !button.closest('[data-cds="Prose"], .standard-markdown, pre, code'));
+  const copies = buttons.filter(button => button.getAttribute('data-testid') === 'action-bar-copy' ||
+    (nested && button.parentElement === bar && button.matches('[data-cds="Button"]:not([data-testid])') &&
+      ['复制', 'Copy'].includes(button.getAttribute('aria-label'))));
+  const retries = buttons.filter(button => button.getAttribute('data-testid') === 'action-bar-retry');
+  return copies.length === 1 && retries.length === 1 && enabled(copies[0]) && enabled(retries[0]);
 }
 function enabled(button) {
   // .disabled alone misses the browser's inherited disabled fieldset state.
@@ -403,7 +429,7 @@ export function finalCandidate(doc, baseline, user) {
   if (following.some(message => [...message.querySelectorAll('[role="alert"], [data-testid="error-message"]')].some(visible))) throw new PageSafetyError('Claude 网页回复失败，请在网页处理；本次不会重新提问');
   if (generating(doc) || following.length !== 1 || !completedMessage(following[0])) return null;
   const message = following[0];
-  const blocks = [...message.querySelectorAll('[data-perf-reply-text].standard-markdown')].filter(node => visible(node) && !isReasoning(node) && !node.parentElement?.closest('[data-perf-reply-text]'));
+  const blocks = publicBodies(message);
   if (blocks.length > 1) return null;
   const images = answerImages(message, baseline); if (images === null) return null;
   const clone = blocks[0]?.cloneNode(true);
