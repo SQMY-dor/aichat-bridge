@@ -86,12 +86,28 @@ function userText(message, { pending = false } = {}) {
 function publicBodies(message) {
   return [...message.querySelectorAll(BODY)].filter(node => visible(node) && node.closest(ASSISTANT) === message);
 }
+// Response actions are read-only completion markers. Qwen can hide them with
+// visibility:hidden until the message is hovered; that does not remove their
+// identity or completion meaning. Never use this predicate to click a control
+// or to read hidden answer text. Explicitly concealed templates stay excluded.
+function completionMarkerPresent(node, message) {
+  if (!node || !message?.contains(node) || !visible(message) || message.closest('[inert]')) return false;
+  for (let current = node; current && current !== message; current = current.parentElement) {
+    if (current.hidden || current.getAttribute('aria-hidden') === 'true' || current.hasAttribute('inert') ||
+        current.ownerDocument.defaultView.getComputedStyle(current).display === 'none') return false;
+  }
+  return true;
+}
+function completionActionEnabled(button, message) {
+  return completionMarkerPresent(button, message) && !button.disabled && !button.matches(':disabled') &&
+    !button.closest('[inert], [aria-disabled="true"]');
+}
 function completed(message) {
   if (!rowOf(message) || !unique(message) || !publicBodies(message).length || generating(message.ownerDocument) || !sendControl(message.ownerDocument)) return false;
   if ([...message.querySelectorAll('[role="alert"], [aria-busy="true"]')].some(visible)) return false;
-  const footers = [...message.querySelectorAll(FOOTER)].filter(node => visible(node) && node.closest(ASSISTANT) === message);
+  const footers = [...message.querySelectorAll(FOOTER)].filter(node => completionMarkerPresent(node, message) && node.closest(ASSISTANT) === message);
   if (footers.length !== 1 || footers[0].getAttribute('data-msg-id') !== message.id.slice('chat-response-message-'.length) || footers[0].getAttribute('data-chat-id') !== chatId(message.ownerDocument)) return false;
-  return ['copy', 'regenerate'].every(action => [...footers[0].querySelectorAll(`button.qwen-chat-package-comp-new-action-control-container-${action}`)].filter(enabled).length === 1);
+  return ['copy', 'regenerate'].every(action => [...footers[0].querySelectorAll(`button.qwen-chat-package-comp-new-action-control-container-${action}`)].filter(button => completionActionEnabled(button, message)).length === 1);
 }
 export function snapshot(doc) {
   const users = turns(doc, 'user');

@@ -1,7 +1,7 @@
 (() => {
   if (globalThis.__chatGPTBotBridge) return;
   globalThis.__chatGPTBotBridge = true;
-  const CONTENT_VERSION = '0.1.4';
+  const CONTENT_VERSION = '0.1.5';
   const pageOpenedAt = Date.now();
   let bridgeIdleSince = pageOpenedAt;
   const IDLE_REFRESH_MS = 10 * 60 * 1000;

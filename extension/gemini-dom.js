@@ -97,7 +97,9 @@ function completedMessage(message) {
   const row = messageRow(message); const bodies = publicBodies(message);
   if (!row?.id || bodies.length !== 1 || bodies[0].getAttribute('aria-busy') !== 'false') return false;
   if ([...message.querySelectorAll('[role="alert"]')].some(visible)) return false;
-  const footers = [...message.querySelectorAll('.response-footer.complete')].filter(node => visible(node) && !isReasoning(node) && node.closest(ASSISTANT) === message && !bodies[0].contains(node));
+  // The complete footer is also a read-only marker, not a control to click.
+  // Apply the same hover-visibility rule as the response actions below.
+  const footers = [...message.querySelectorAll('.response-footer.complete')].filter(node => completionControlPresent(node, message) && node.closest(ASSISTANT) === message && !bodies[0].contains(node));
   const actions = [...message.querySelectorAll('message-actions')].filter(node => completionControlPresent(node, message) && node.closest(ASSISTANT) === message && !bodies[0].contains(node));
   if (footers.length !== 1 || actions.length !== 1 || !(bodies[0].compareDocumentPosition(actions[0]) & 4)) return false;
   const retries = [...actions[0].querySelectorAll('regenerate-button [data-test-id="regenerate-button"] button')].filter(button => completionControlEnabled(button, message));
