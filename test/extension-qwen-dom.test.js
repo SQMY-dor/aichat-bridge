@@ -62,6 +62,155 @@ test('Qwen waits for prompt renderer mount and chunks without claiming partial t
   body.querySelector('p').textContent = '12';
   assert.throws(() => dom.finalCandidate(d, baseline, row), /内容被替换/);
 });
+test('Qwen durable pending user can keep waiting without owning an answer', () => {
+  const { window: w } = page(), d = w.document, baseline = dom.snapshot(d);
+  assert.equal(dom.submittedUserPending(d, baseline, 'Question'), false);
+  const row = user(d, ''), body = row.querySelector('.chunked-text-renderer-root');
+  answer(d, '<p>Already rendered answer</p>');
+  body.remove();
+  assert.equal(dom.findSubmittedUser(d, baseline, 'Question'), null);
+  assert.equal(dom.submittedUserPending(d, baseline, 'Question'), true);
+  row.querySelector('.chat-user-message').append(body);
+  for (const text of ['', 'Q', 'Quest']) {
+    body.textContent = text;
+    assert.equal(dom.findSubmittedUser(d, baseline, 'Question'), null);
+    assert.equal(dom.submittedUserPending(d, baseline, 'Question'), true);
+    assert.equal(baseline.submittedText, undefined);
+    assert.throws(() => dom.finalCandidate(d, baseline, row), dom.PageSafetyError);
+  }
+  body.textContent = 'Question';
+  assert.equal(dom.submittedUserPending(d, baseline, 'Question'), false);
+  assert.equal(baseline.submittedText, undefined, 'the wait predicate cannot confirm ownership');
+  assert.equal(dom.findSubmittedUser(d, baseline, 'Question'), row);
+  assert.equal(dom.finalCandidate(d, baseline, row).text, 'Already rendered answer');
+});
+test('Qwen pending identity survives a same-ID React remount but cannot move to another user ID', () => {
+  for (const sameId of [true, false]) {
+    const { window: w } = page(), d = w.document, baseline = dom.snapshot(d);
+    const current = user(d, ''), oldRow = current.closest('.qwen-chat-message-select-turn');
+    assert.equal(dom.findSubmittedUser(d, baseline, 'Question'), null);
+    assert.equal(dom.submittedUserPending(d, baseline, 'Question'), true);
+    const replacement = oldRow.cloneNode(true); oldRow.replaceWith(replacement);
+    const next = replacement.querySelector('.chat-user-message-container');
+    if (!sameId) next.setAttribute('data-msg-id', 'different-user');
+    next.querySelector('p').textContent = 'Question';
+    if (sameId) {
+      assert.equal(dom.findSubmittedUser(d, baseline, 'Question'), next);
+      answer(d, '<p>Answer</p>'); assert.equal(dom.finalCandidate(d, baseline, next).text, 'Answer');
+    } else {
+      assert.throws(() => dom.findSubmittedUser(d, baseline, 'Question'), dom.PageSafetyError, 'an already complete replacement must not bypass the pending lock');
+      assert.throws(() => dom.submittedUserPending(d, baseline, 'Question'), dom.PageSafetyError);
+    }
+  }
+});
+for (const initial of ['', 'Quest', 'Question']) for (const replaceUser of [false, true]) {
+  test(`Qwen optimistic ID can settle once within its continuous row: ${initial.length} chars, replace=${replaceUser}`, () => {
+    const { window: w } = page(), d = w.document, baseline = dom.snapshot(d);
+    const first = user(d, initial, 'synthetic-optimistic-user');
+    const originalRow = first.closest('.qwen-chat-message-select-turn');
+    let submitted = dom.findSubmittedUser(d, baseline, 'Question');
+    assert.equal(Boolean(submitted), initial === 'Question');
+    let current = first;
+    if (replaceUser) { current = first.cloneNode(true); first.replaceWith(current); }
+    current.setAttribute('data-msg-id', 'synthetic-server-user');
+    current.querySelector('p').textContent = 'Question';
+    assert.equal(current.closest('.qwen-chat-message-select-turn'), originalRow);
+    answer(d, '<p>Server answer</p>');
+    if (!submitted) submitted = dom.findSubmittedUser(d, baseline, 'Question');
+    assert.equal(dom.finalCandidate(d, baseline, submitted).text, 'Server answer');
+    assert.equal(dom.finalCandidate(d, baseline, submitted).text, 'Server answer', 'repeated scans do not consume another identity transition');
+  });
+}
+test('Qwen optimistic ID change with incomplete text remains unowned until full text matches', () => {
+  const { window: w } = page(), d = w.document, baseline = dom.snapshot(d);
+  const current = user(d, '', 'synthetic-optimistic-user');
+  assert.equal(dom.findSubmittedUser(d, baseline, 'Question'), null);
+  current.setAttribute('data-msg-id', 'synthetic-server-user');
+  current.querySelector('p').textContent = 'Quest'; answer(d, '<p>Answer</p>');
+  assert.equal(dom.findSubmittedUser(d, baseline, 'Question'), null);
+  assert.equal(dom.submittedUserPending(d, baseline, 'Question'), true);
+  assert.equal(baseline.submittedText, undefined);
+  assert.throws(() => dom.finalCandidate(d, baseline, current), dom.PageSafetyError);
+  current.querySelector('p').textContent = 'Question';
+  assert.equal(dom.findSubmittedUser(d, baseline, 'Question'), current);
+  assert.equal(dom.finalCandidate(d, baseline, current).text, 'Answer');
+});
+for (const mutation of ['wrong-text', 'extra-user', 'wrong-chat', 'new-row', 'still-connected-old-user', 'second-id-change', 'old-id-return']) {
+  test('Qwen optimistic ID transition refuses ' + mutation, () => {
+    const { window: w } = page(), d = w.document, baseline = dom.snapshot(d);
+    let current = user(d, '', 'synthetic-optimistic-user');
+    assert.equal(dom.findSubmittedUser(d, baseline, 'Question'), null);
+    if (mutation === 'new-row') {
+      const oldRow = current.closest('.qwen-chat-message-select-turn'), next = oldRow.cloneNode(true);
+      oldRow.replaceWith(next); current = next.querySelector('.chat-user-message-container');
+    }
+    if (mutation === 'still-connected-old-user') {
+      const old = current; current = old.cloneNode(true); old.replaceWith(current); d.body.append(old);
+    }
+    current.setAttribute('data-msg-id', 'synthetic-server-user');
+    current.querySelector('p').textContent = mutation === 'wrong-text' ? 'Other question' : 'Question';
+    if (mutation === 'extra-user') user(d, 'Question', 'synthetic-other-user');
+    if (mutation === 'wrong-chat') current.setAttribute('data-chat-id', 'other-conversation');
+    if (mutation === 'second-id-change' || mutation === 'old-id-return') {
+      assert.equal(dom.findSubmittedUser(d, baseline, 'Question'), current);
+      current.setAttribute('data-msg-id', mutation === 'old-id-return' ? 'synthetic-optimistic-user' : 'synthetic-third-user');
+    }
+    assert.throws(() => dom.findSubmittedUser(d, baseline, 'Question'), dom.PageSafetyError);
+    assert.throws(() => dom.submittedUserPending(d, baseline, 'Question'), dom.PageSafetyError);
+  });
+}
+test('Qwen final ownership uses recorded identity rather than a mutable previous-user reference', () => {
+  const { window: w } = page(), d = w.document, baseline = dom.snapshot(d);
+  const current = user(d, 'Question', 'synthetic-optimistic-user');
+  const submitted = dom.findSubmittedUser(d, baseline, 'Question');
+  const oldRow = current.closest('.qwen-chat-message-select-turn'), nextRow = oldRow.cloneNode(false);
+  oldRow.before(nextRow); nextRow.append(current.parentElement); oldRow.remove();
+  current.setAttribute('data-msg-id', 'synthetic-server-user'); answer(d, '<p>Must not forward</p>');
+  assert.equal(current, submitted, 'the old reference also sees the new ID');
+  assert.throws(() => dom.finalCandidate(d, baseline, submitted), dom.PageSafetyError);
+});
+test('Qwen vanished pending rows stop extending the missing-message window and retain their identity lock', () => {
+  const { window: w } = page(), d = w.document, baseline = dom.snapshot(d);
+  const current = user(d, '');
+  assert.equal(dom.submittedUserPending(d, baseline, 'Question'), true);
+  current.closest('.qwen-chat-message-select-turn').remove();
+  assert.equal(dom.findSubmittedUser(d, baseline, 'Question'), null);
+  assert.equal(dom.submittedUserPending(d, baseline, 'Question'), false);
+  user(d, 'Question', 'replacement-user');
+  assert.throws(() => dom.findSubmittedUser(d, baseline, 'Question'), dom.PageSafetyError);
+});
+for (const mutation of ['different-text', 'wrong-chat', 'empty-id', 'duplicate-root', 'extra-user', 'duplicate-id', 'invalid-row', 'missing-anchor', 'changed-prompt']) {
+  test('Qwen durable pending validation rejects ' + mutation, () => {
+    const { window: w } = page(), d = w.document;
+    user(d, 'Earlier question', 'old-user'); answer(d, '<p>Earlier answer</p>', 'old-answer');
+    const baseline = dom.snapshot(d), current = user(d, ''), body = current.querySelector('.chunked-text-renderer-root');
+    assert.equal(dom.submittedUserPending(d, baseline, 'Question'), true);
+    if (mutation === 'different-text') body.textContent = 'Other text';
+    if (mutation === 'wrong-chat') current.setAttribute('data-chat-id', 'other-conversation');
+    if (mutation === 'empty-id') current.setAttribute('data-msg-id', '');
+    if (mutation === 'duplicate-root') body.after(body.cloneNode(true));
+    if (mutation === 'extra-user') user(d, 'Question', 'another-user');
+    if (mutation === 'duplicate-id') current.after(current.cloneNode(true));
+    if (mutation === 'invalid-row') current.closest('.qwen-chat-message-select-turn').className = 'unknown-turn';
+    if (mutation === 'missing-anchor') d.querySelector('[data-msg-id="old-user"]').closest('.qwen-chat-message-select-turn').remove();
+    const expected = mutation === 'changed-prompt' ? 'Other task' : 'Question';
+    assert.throws(() => dom.findSubmittedUser(d, baseline, expected), dom.PageSafetyError);
+    assert.throws(() => dom.submittedUserPending(d, baseline, expected), dom.PageSafetyError);
+    assert.equal(baseline.submittedText, undefined);
+  });
+}
+test('Qwen confirmed prompts cannot become pending again or be rebound to edited text', () => {
+  for (const mutation of ['prefix', 'empty', 'missing-root', 'different-text']) {
+    const { window: w } = page(), d = w.document, s = state(d, '<p>Answer</p>');
+    const body = s.submitted.querySelector('.chunked-text-renderer-root');
+    if (mutation === 'missing-root') body.remove();
+    else body.textContent = { prefix: 'Quest', empty: '', 'different-text': 'Other text' }[mutation];
+    assert.throws(() => dom.findSubmittedUser(d, s.baseline, 'Question'), dom.PageSafetyError);
+    assert.throws(() => dom.submittedUserPending(d, s.baseline, 'Question'), dom.PageSafetyError);
+    assert.throws(() => dom.findSubmittedUser(d, s.baseline, 'Other text'), dom.PageSafetyError);
+    assert.throws(() => candidate(d, s), dom.PageSafetyError);
+  }
+});
 test('Qwen still rejects a different prompt, duplicate renderer and additional users while waiting', () => {
   for (const mutation of ['different', 'duplicate', 'extra-user']) {
     const { window: w } = page(), d = w.document, baseline = dom.snapshot(d);

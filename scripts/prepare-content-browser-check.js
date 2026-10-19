@@ -24,9 +24,9 @@ fs.writeFileSync(output, `async page => {
     const pathname = route.request().url().replace(/^https:\\/\\/[^/]+/, '').split('?')[0];
     return paths[pathname] ? route.fulfill({ path: paths[pathname], contentType: pathname.endsWith('.js') ? 'text/javascript' : 'text/html' }) : route.abort();
   });
-  for (const url of urls) for (const mode of ['multiline', 'hydrate', 'remount', 'mismatch', 'incomplete']) {
+  for (const url of urls) for (const mode of ['multiline', 'hydrate', 'remount', 'mismatch', 'incomplete', ...(url.startsWith('https://chat.qwen.ai/') ? ['late-hydrate', 'late-mismatch', 'late-id-change', 'late-row-replacement', 'confirmed-id-change'] : [])]) {
     await page.goto(url + '?mode=' + mode);
-    await page.waitForFunction(() => window.regressionResult, { timeout: 20000 });
+    await page.waitForFunction(() => window.regressionResult, undefined, { timeout: mode.startsWith('late-') ? 50000 : 20000 });
     const result = await page.evaluate(() => window.regressionResult);
     if(result.error) throw new Error(JSON.stringify(result));
     results.push(result);

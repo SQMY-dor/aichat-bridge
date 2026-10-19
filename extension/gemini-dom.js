@@ -1,12 +1,12 @@
 import { normalizeText } from './shared.js';
 import { imagesVisuallyMatch } from './image-equivalence.js';
-// Text editing and byte validation are shared; selectors, turn ownership and
-// completion signals below belong exclusively to the observed Gemini UI.
+// Text reading and byte validation are shared. Editing, selectors, turn
+// ownership and completion signals belong to this Gemini adapter.
 import {
-  PageSafetyError, visible, composerText, insertPrompt, markdownText,
+  PageSafetyError, visible, composerText, markdownText,
   validateInputImages, decodeImagePayload, MAX_IMAGES, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES,
 } from './dom.js';
-export { PageSafetyError, visible, composerText, insertPrompt, markdownText, validateInputImages, MAX_IMAGES, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES };
+export { PageSafetyError, visible, composerText, markdownText, validateInputImages, MAX_IMAGES, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES };
 
 const COMPOSER = 'input-area-v2 rich-textarea .ql-editor[contenteditable="true"][role="textbox"]';
 const SEND = '[data-test-id="send-button-container"] gem-icon-button.send-button.submit > button';
@@ -438,4 +438,24 @@ export function finalCandidate(doc, baseline, user) {
   let text = markdownText(clone);
   if (media.externalSources.size) text += `${text ? '\n\n' : ''}提示：本次回复有 ${media.externalSources.size} 张外部来源图片未转发，请在 Gemini 网页查看。`;
   return text || media.images.length ? { message, text, images: media.images } : null;
+}
+
+// Restore Gemini's 0.6.0–0.7.3 editor notification independently from ChatGPT.
+// This event does not prove submission; content.js still validates the full
+// draft, waits for the send button, clicks once and confirms the submitted turn.
+export function insertPrompt(doc, input, prompt) {
+  if (!input.isConnected || Boolean(input.disabled || input.matches(':disabled') || input.closest('[inert], [aria-disabled="true"]')) || input.readOnly) throw new PageSafetyError('网页输入框当前不可用，已停止写入');
+  if (normalizeText(composerText(input))) throw new PageSafetyError('检测到新草稿，已停止写入');
+  input.focus();
+  if (input.tagName === 'TEXTAREA') {
+    const setter = Object.getOwnPropertyDescriptor(doc.defaultView.HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(input, prompt);
+    input.dispatchEvent(new doc.defaultView.InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
+  } else {
+    const range = doc.createRange(); range.selectNodeContents(input);
+    const selection = doc.defaultView.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    if (typeof doc.execCommand !== 'function' || !doc.execCommand('insertText', false, prompt)) throw new PageSafetyError('浏览器未接受正常文本输入，已停止发送');
+    input.dispatchEvent(new doc.defaultView.InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
+  }
+  if (normalizeText(composerText(input)) !== normalizeText(prompt)) throw new PageSafetyError('网页输入内容与任务不同，已停止发送');
 }

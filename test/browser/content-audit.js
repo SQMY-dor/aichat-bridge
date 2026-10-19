@@ -3,12 +3,14 @@
 import fixtures from '/fixtures.js';
 const provider = ({ 'chatgpt.com': 'chatgpt', 'claude.ai': 'claude', 'gemini.google.com': 'gemini', 'chat.qwen.ai': 'qwen' })[location.hostname];
 const mode = new URL(location.href).searchParams.get('mode');
+const lateQwen = provider === 'qwen' && ['late-hydrate', 'late-mismatch', 'late-id-change', 'late-row-replacement'].includes(mode);
+const confirmedQwenIdChange = provider === 'qwen' && mode === 'confirmed-id-change';
 document.body.innerHTML = fixtures[provider];
 const dom = await import(`/extension/${provider === 'chatgpt' ? 'dom' : provider + '-dom'}.js`);
 const input = dom.composer(document), button = dom.sendButton(document, input);
-const prompt = ['hydrate', 'incomplete'].includes(mode) ? '123' : '第一行\nsecond line';
+const prompt = lateQwen || ['hydrate', 'incomplete'].includes(mode) ? '123' : '第一行\nsecond line';
 const messages = [];
-let clicks = 0, polled = false;
+let clicks = 0, polled = false, sentAt = null, lateMutationAt = null;
 const check = (condition, message) => { if (!condition) throw new Error(message); };
 const paragraphs = (element, text) => element.replaceChildren(...text.split('\n').map(line => { const p = document.createElement('p'); p.textContent = line; return p; }));
 const clone = selector => document.querySelector(selector).cloneNode(true);
@@ -48,17 +50,34 @@ function mountTurn() {
     };
   }
   const text = mode === 'mismatch' ? 'Other question' : prompt;
-  if (mode === 'incomplete') {
+  if (lateQwen) {
+    setTimeout(() => paragraphs(userBody, '12'), 100);
+    setTimeout(() => {
+      lateMutationAt = performance.now();
+      let currentBody = userBody;
+      if (mode === 'late-row-replacement') {
+        const row = userBody.closest('.qwen-chat-message-select-turn'), replacement = row.cloneNode(true);
+        row.replaceWith(replacement); currentBody = replacement.querySelector('.chunked-text-renderer-root');
+      }
+      if (['late-id-change', 'late-mismatch', 'late-row-replacement'].includes(mode)) currentBody.closest('.chat-user-message-container').dataset.msgId = 'server-user-id';
+      paragraphs(currentBody, mode === 'late-mismatch' ? 'Other question' : prompt);
+    }, 26000);
+  } else if (mode === 'incomplete') {
     if (provider === 'qwen') setTimeout(() => paragraphs(userBody, '12'), 100);
   } else if (mode === 'hydrate') {
     if (provider === 'qwen') { setTimeout(() => paragraphs(userBody, '1'), 50); setTimeout(() => paragraphs(userBody, '12'), 100); }
     setTimeout(() => paragraphs(userBody, text), 200);
   } else paragraphs(userBody, text);
+  if (confirmedQwenIdChange) setTimeout(() => {
+    lateMutationAt = performance.now();
+    userBody.closest('.chat-user-message-container').dataset.msgId = 'server-confirmed-id';
+  }, 800);
   setTimeout(complete, 400);
 }
 button.addEventListener('click', () => {
   try {
     clicks++;
+    sentAt = performance.now();
     check(dom.composerText(input).replace(/\s+/g, ' ').trim() === prompt.replace(/\s+/g, ' '), 'submitted text differs from job');
     if (input.tagName === 'TEXTAREA') input.value = ''; else input.replaceChildren();
     mountTurn();
@@ -70,17 +89,19 @@ window.chrome = { runtime: {
   async sendMessage(message) {
     messages.push(message);
     if (message.type === 'bridge:poll') {
-      const job = polled ? null : { id: 'audit-job', assistant: provider, platform: mode === 'hydrate' ? 'feishu' : 'qq', prompt, conversationUrl: location.origin + location.pathname, timeoutMs: mode === 'incomplete' ? 2500 : 12000, images: [] };
+      const job = polled ? null : { id: 'audit-job', assistant: provider, platform: mode === 'hydrate' ? 'feishu' : 'qq', prompt, conversationUrl: location.origin + location.pathname, timeoutMs: lateQwen ? 45000 : mode === 'incomplete' ? 2500 : 12000, images: [] };
       polled = true; return { ok: true, data: { job } };
     }
     if (message.type === 'bridge:result' || message.type === 'bridge:error') {
       setTimeout(() => {
         try {
           check(clicks === 1, 'must click exactly once');
+          if (lateQwen) check(lateMutationAt !== null && lateMutationAt - sentAt >= 25000, 'pending Qwen turn must survive the old 20-second confirmation limit before reaching its late mutation');
+          if (confirmedQwenIdChange) check(lateMutationAt !== null, 'confirmed Qwen identity must be promoted before forwarding');
           const results = messages.filter(m => m.type === 'bridge:result'), errors = messages.filter(m => m.type === 'bridge:error');
-          if (['mismatch', 'incomplete'].includes(mode)) check(results.length === 0 && errors.length === 1, 'unconfirmed prompt must never be forwarded');
+          if (['mismatch', 'incomplete', 'late-mismatch', 'late-row-replacement'].includes(mode)) check(results.length === 0 && errors.length === 1, 'unconfirmed prompt must never be forwarded');
           else check(errors.length === 0 && results.length === 1 && results[0].text === 'Audit answer', 'expected one complete result: ' + (errors[0]?.error || JSON.stringify(results)));
-          window.regressionResult = { provider, mode, clicks, results: results.length, errors: errors.length };
+          window.regressionResult = { provider, mode, clicks, results: results.length, errors: errors.length, ...(lateQwen ? { elapsedMs: Math.round(performance.now() - sentAt) } : {}) };
         } catch (error) { window.regressionResult = { provider, mode, error: error.stack }; }
       }, 50);
     }

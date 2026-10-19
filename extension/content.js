@@ -1,7 +1,7 @@
 (() => {
   if (globalThis.__chatGPTBotBridge) return;
   globalThis.__chatGPTBotBridge = true;
-  const CONTENT_VERSION = '0.1.1';
+  const CONTENT_VERSION = '0.1.4';
   const pageOpenedAt = Date.now();
   let bridgeIdleSince = pageOpenedAt;
   const IDLE_REFRESH_MS = 10 * 60 * 1000;
@@ -63,7 +63,7 @@
     function confirmedUser({ baseline, prompt, check, deadline }) {
       return new Promise((resolve, reject) => {
         const confirmDeadline = Math.min(deadline, Date.now() + 20000);
-        let finished = false; let timer;
+        let finished = false; let timer; let waitingForRender = false;
         const cleanup = () => {
           clearTimeout(timer); observer.disconnect(); activeWaits.delete(changed);
           document.removeEventListener('visibilitychange', changed);
@@ -87,12 +87,16 @@
             if (Date.now() >= deadline) throw new Error(`等待 ${assistantLabel} 回复超时；不会重新提问`);
             const user = dom.findSubmittedUser(document, baseline, prompt);
             if (user) { finish(null, user); return; }
-            // Gemini displays the exact submitted prompt in a temporary
-            // pending-request before a durable turn exists. Revalidate that
-            // state on every wake; only a currently matching pending message
-            // may wait beyond the missing-message window, within the job's
-            // original deadline. It can never authorize an answer itself.
+            // Provider-verified pending state may outlast the missing-message
+            // window: Gemini has an exact prompt in its temporary shell;
+            // Qwen can mount a durable message ID before rendering its text.
+            // Revalidate on every wake and keep the original job deadline.
+            // Waiting alone never authorizes an answer; full text must match.
             const pending = dom.submittedUserPending?.(document, baseline, prompt) === true;
+            if (pending && Date.now() >= confirmDeadline && !waitingForRender) {
+              waitingForRender = true;
+              status(`已发送，等待 ${assistantLabel} 加载并确认本次提问；不会重复发送`);
+            }
             const remaining = (pending ? deadline : confirmDeadline) - Date.now();
             if (remaining <= 0) {
               const reason = dom.submissionWaitReason?.(document, baseline, prompt);

@@ -1,11 +1,11 @@
 import { normalizeText } from './shared.js';
-// Shared helpers handle text and image bytes only. Claude never uses ChatGPT's
+// Shared helpers read text and validate image bytes only. Claude never uses ChatGPT's
 // composer, turn attribution, completion selectors, or image-source allowlist.
 import {
-  PageSafetyError, visible, composerText, insertPrompt, markdownText,
+  PageSafetyError, visible, composerText, markdownText,
   validateInputImages, decodeImagePayload, MAX_IMAGES, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES,
 } from './dom.js';
-export { PageSafetyError, visible, composerText, insertPrompt, markdownText, validateInputImages, MAX_IMAGES, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES };
+export { PageSafetyError, visible, composerText, markdownText, validateInputImages, MAX_IMAGES, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES };
 
 // These structural selectors were checked read-only against Claude's web UI.
 // Do not fall back to arbitrary textboxes, submit buttons, or whole-page prose.
@@ -416,4 +416,29 @@ export function finalCandidate(doc, baseline, user) {
   }
   const text = clone ? markdownText(clone) : '';
   return text || images.length ? { message, text, images } : null;
+}
+
+// Claude owns its editor event policy; changing another provider must not alter it.
+export function insertPrompt(doc, input, prompt) {
+  if (!input.isConnected || Boolean(input.disabled || input.matches(':disabled') || input.closest('[inert], [aria-disabled="true"]')) || input.readOnly) throw new PageSafetyError('网页输入框当前不可用，已停止写入');
+  if (normalizeText(composerText(input))) throw new PageSafetyError('检测到新草稿，已停止写入');
+  input.focus();
+  if (input.tagName === 'TEXTAREA') {
+    const setter = Object.getOwnPropertyDescriptor(doc.defaultView.HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(input, prompt);
+    input.dispatchEvent(new doc.defaultView.InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
+  } else {
+    const range = doc.createRange(); range.selectNodeContents(input);
+    const selection = doc.defaultView.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    // Chromium emits native input events while executing insertText (several
+    // for multiline text). Do not append another full-prompt event afterward.
+    let emittedInput = false;
+    const observeInput = () => { emittedInput = true; };
+    input.addEventListener('input', observeInput, true);
+    try {
+      if (typeof doc.execCommand !== 'function' || !doc.execCommand('insertText', false, prompt)) throw new PageSafetyError('浏览器未接受正常文本输入，已停止发送');
+    } finally { input.removeEventListener('input', observeInput, true); }
+    if (!emittedInput) input.dispatchEvent(new doc.defaultView.InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
+  }
+  if (normalizeText(composerText(input)) !== normalizeText(prompt)) throw new PageSafetyError('网页输入内容与任务不同，已停止发送');
 }

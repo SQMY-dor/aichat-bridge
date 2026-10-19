@@ -1,9 +1,9 @@
 import { normalizeText, conversationUrl } from './shared.js';
 import {
-  PageSafetyError, visible, composerText, insertPrompt, markdownText as sharedMarkdown,
+  PageSafetyError, visible, composerText, markdownText as sharedMarkdown,
   validateInputImages, decodeImagePayload, MAX_IMAGES, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES,
 } from './dom.js';
-export { PageSafetyError, visible, composerText, insertPrompt, validateInputImages, MAX_IMAGES, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES };
+export { PageSafetyError, visible, composerText, validateInputImages, MAX_IMAGES, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES };
 
 // Observed on the international chat.qwen.ai UI. Keep input, public answer,
 // action footer and attachment boundaries separate from sidebars and editors.
@@ -106,19 +106,42 @@ export function newUsers(doc, baseline) {
   }
   return users.filter(node => !baseline.users.has(key(node)));
 }
-export function findSubmittedUser(doc, baseline, prompt) {
+function submissionState(doc, baseline, prompt) {
   const users = newUsers(doc, baseline);
   if (users.length > 1) throw new PageSafetyError('检测到其他新消息，已停止转发，避免混淆回复');
   if (!users.length) return null;
-  const user = users[0];
-  if (!rowOf(user) || !unique(user) || user.getAttribute('data-chat-id') !== chatId(doc)) throw new PageSafetyError('Qwen 新消息归属无法确认，已停止转发');
-  const expected = normalizeText(prompt), actual = userText(user, { pending: true });
-  // The chunked renderer can briefly contain no text or just the beginning of
-  // the submitted prompt. Wait within content.js's existing confirmation
-  // deadline, never claim this row or its answer until the whole text matches.
-  if (actual === null || (actual !== expected && expected.startsWith(actual))) return null;
-  if (actual !== expected) throw new PageSafetyError('新增网页消息与本次群消息不同，已停止转发');
-  baseline.submittedText = normalizeText(prompt); return user;
+  const user = users[0], row = rowOf(user);
+  if (!user.getAttribute('data-msg-id')?.trim() || !row || !unique(user) || user.getAttribute('data-chat-id') !== chatId(doc)) throw new PageSafetyError('Qwen 新消息归属无法确认，已停止转发');
+  const expected = normalizeText(prompt), currentKey = key(user), observed = baseline.submissionUser;
+  if (observed && observed.prompt !== expected) throw new PageSafetyError('待确认的 Qwen 网页消息已被替换，已停止转发');
+  const confirmed = baseline.submittedText !== undefined;
+  const actual = userText(user, { pending: !confirmed });
+  if (confirmed && (actual !== baseline.submittedText || expected !== baseline.submittedText)) throw new PageSafetyError('已确认的 Qwen 网页消息内容被替换，已停止转发');
+  if (actual !== null && actual !== expected && !expected.startsWith(actual)) throw new PageSafetyError('新增网页消息与本次群消息不同，已停止转发');
+  // Qwen replaces an optimistic user ID with its server ID after sending.
+  // Permit one transition only inside the same live turn row, with the same
+  // user node or a detached/replaced child. Text and unique-conversation
+  // checks above still apply; changing the row and ID together is ambiguous.
+  if (observed && observed.key !== currentKey) {
+    if (observed.identityChanges || observed.row !== row || !observed.row.isConnected ||
+        (observed.node !== user && observed.node.isConnected)) throw new PageSafetyError('待确认的 Qwen 网页消息已被替换，已停止转发');
+    observed.key = currentKey; observed.identityChanges++;
+  }
+  baseline.submissionUser ||= { key: currentKey, prompt: expected, identityChanges: 0, confirmedNodes: new WeakSet() };
+  baseline.submissionUser.node = user; baseline.submissionUser.row = row;
+  return { user, expected, pending: actual === null || actual !== expected };
+}
+export function findSubmittedUser(doc, baseline, prompt) {
+  const state = submissionState(doc, baseline, prompt);
+  if (!state || state.pending) return null;
+  baseline.submissionUser.confirmedNodes.add(state.user);
+  baseline.submittedText = state.expected; return state.user;
+}
+export function submittedUserPending(doc, baseline, prompt) {
+  // An identified, unique user row can outlive the 20-second missing-message
+  // window while its prompt is still absent/partial. content.js keeps the
+  // original job deadline; this predicate never confirms a prompt or answer.
+  return submissionState(doc, baseline, prompt)?.pending === true;
 }
 export function submissionWaitReason(doc, baseline, prompt) {
   const users = newUsers(doc, baseline);
@@ -260,9 +283,13 @@ export function answerImageSource(value) {
   throw new PageSafetyError('本次 Qwen 回复图片的来源不受支持，未读取或转发图片');
 }
 export function finalCandidate(doc, baseline, previousUser) {
-  const users = newUsers(doc, baseline);
-  if (users.length !== 1 || key(users[0]) !== key(previousUser) || !unique(users[0]) || userText(users[0]) !== baseline.submittedText || users[0].getAttribute('data-chat-id') !== chatId(doc)) throw new PageSafetyError('对话出现其他消息或内容被替换，停止转发');
-  const user = users[0], row = rowOf(user);
+  // The previous node is mutable: its data-msg-id may already have changed.
+  // Use the recorded identity and the same checked transition rule instead
+  // of comparing the current ID with another reference to that same node.
+  if (baseline.submittedText === undefined || !baseline.submissionUser?.confirmedNodes.has(previousUser)) throw new PageSafetyError('对话出现其他消息或内容被替换，停止转发');
+  const state = submissionState(doc, baseline, baseline.submittedText);
+  if (!state || state.pending) throw new PageSafetyError('对话出现其他消息或内容被替换，停止转发');
+  const user = state.user, row = rowOf(user);
   if (!row) throw new PageSafetyError('Qwen 本轮消息结构发生变化，已停止转发');
   const following = turns(doc, 'assistant').filter(message => !baseline.assistants.has(key(message)) && (user.compareDocumentPosition(message) & 4));
   if (following.some(message => [...message.querySelectorAll('[role="alert"]')].some(visible))) throw new PageSafetyError('Qwen 网页回复失败，请在网页处理；本次不会重新提问');
@@ -318,4 +345,17 @@ export async function readAnswerImage(image, { fetchImpl = globalThis.fetch, tim
     if (error instanceof PageSafetyError) throw error;
     throw new PageSafetyError('无法读取本次 Qwen 回复图片，可能是图片访问受限或连接中断；未转发空图片');
   } finally { clearTimeout(timer); controller.abort(); reader?.cancel().catch(() => {}); }
+}
+
+// Qwen owns its native textarea update. Contenteditable event changes in
+// ChatGPT, Claude or Gemini must never change this path.
+export function insertPrompt(doc, input, prompt) {
+  if (!input.isConnected || input.disabled || input.matches(':disabled') || input.closest('[inert], [aria-disabled="true"]') || input.readOnly) throw new PageSafetyError('网页输入框当前不可用，已停止写入');
+  if (input.tagName !== 'TEXTAREA') throw new PageSafetyError('Qwen 输入框结构已变化，已停止写入');
+  if (normalizeText(composerText(input))) throw new PageSafetyError('检测到新草稿，已停止写入');
+  input.focus();
+  const setter = Object.getOwnPropertyDescriptor(doc.defaultView.HTMLTextAreaElement.prototype, 'value').set;
+  setter.call(input, prompt);
+  input.dispatchEvent(new doc.defaultView.InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
+  if (normalizeText(composerText(input)) !== normalizeText(prompt)) throw new PageSafetyError('网页输入内容与任务不同，已停止发送');
 }
