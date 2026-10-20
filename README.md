@@ -10,7 +10,7 @@
 
 0.1.5 修正 Qwen 和 Gemini 的完成检测：已经完成的回复，其操作栏仅因 `visibility:hidden` 隐藏时，不再依赖悬停或切回页签才回传。仍需本次消息归属、正文及完成标记全部通过校验；没有修改输入或发送动作。若网站自身暂停渲染，或 Chrome 冻结页面，扩展仍无法读取尚未出现在 DOM 中的答案。Gemini 间歇性发送失败、页面自行返回首页，以及 GPT 的 `cloudflare_challenge` 根因仍未确定，本次更新不代表这些问题已修复。
 
-这是一个纯 Chrome 扩展，使用现有网页会话。日常运行不需要 Node.js、本机服务、模型 API Key 或公网回调服务器；机器人由扩展直接连接 QQ / 飞书官方接口。需要长期无人值守运行时，可以在 Linux 上用 Xvfb + 有头 Chromium 常驻加载本扩展，见 deploy/README.md。
+这是一个纯 Chrome 扩展，使用现有网页会话。日常运行不需要 Node.js、本机服务、模型 API Key 或公网回调服务器；机器人由扩展直接连接 QQ / 飞书官方接口。需要长期无人值守运行时，可以在 Linux 上用 Xvfb + 有头 Chromium 常驻加载本扩展，见 deploy/README.md；配套的局域网管理面板（口令登录，可在手机或另一台电脑上改配置、绑群、取消任务）见 deploy/panel/README.md。
 
 ## 功能
 

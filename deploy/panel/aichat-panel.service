@@ -1,0 +1,48 @@
+# deploy/panel/aichat-panel.service — 管理面板的 systemd --user unit
+#
+# 安装:
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/panel/aichat-panel.service ~/.config/systemd/user/
+#   # 先生成口令（也可以自己设 PANEL_TOKEN）:
+#   node -e "console.log(require('crypto').randomBytes(24).toString('base64url'))" \
+#     | install -D -m 600 /dev/stdin ~/.local/share/aichat-bridge/panel/token
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now aichat-panel
+#
+# 依赖 aichat-bridge.service（浏览器必须先跑起来，面板才有设置页可连）。
+
+[Unit]
+Description=AIChat桥接 局域网管理面板
+Documentation=file://%h/aichat-bridge/deploy/panel/README.md
+After=network-online.target aichat-bridge.service
+Wants=network-online.target
+# 浏览器由 aichat-bridge.service 管；面板只在它之后启动，不强制拉起。
+After=aichat-bridge.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/aichat-bridge
+Environment=NODE_ENV=production
+# 局域网访问：监听所有网卡。只想本机用就改成 127.0.0.1。
+Environment=PANEL_BIND=0.0.0.0
+Environment=PANEL_PORT=8787
+# 口令优先取 PANEL_TOKEN；没设就读 PANEL_TOKEN_FILE（默认 ~/.local/share/aichat-bridge/panel/token）。
+# Environment=PANEL_TOKEN=换成你自己的口令
+Environment=AICHAT_DEBUG_PORT=9222
+ExecStart=/usr/bin/env node %h/aichat-bridge/deploy/panel/server.js
+Restart=always
+RestartSec=3
+# 面板只有 Node 一个进程，不需要额外清理。
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=10
+
+# 收紧权限：面板只需要读自己的静态资源、连本机调试端口。
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=%h/.local/share/aichat-bridge
+
+[Install]
+WantedBy=default.target

@@ -4,6 +4,7 @@
 
 - `start-linux.sh` — 幂等启动脚本：Xvfb 虚拟显示 + **有头** Chromium + 固定 profile + 加载扩展
 - `aichat-bridge.service` — systemd `--user` unit，开机自启 + 崩溃自动拉起
+- `panel/` — 局域网管理面板（口令登录），不用 VNC 也能改配置、绑群、取消任务，见 [panel/README.md](panel/README.md)
 - 本文 — 依赖安装、首次登录、权限、日志、排错
 
 > 实测环境：Debian GNU/Linux 12 (bookworm)，`Chromium 155.0.8059.39`，`Xvfb`（Debian 包），root 用户，扩展 id `icbogfapodmmniggkaonnhggfnbondmk`。

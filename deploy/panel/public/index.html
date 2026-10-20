@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIChat桥接 · 管理面板</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="login" class="login" hidden>
+  <form id="login-form" class="card">
+    <h1>AIChat桥接 管理面板</h1>
+    <p class="hint">请输入面板口令。口令在服务器的 <code>PANEL_TOKEN</code> 或 <code>~/.local/share/aichat-bridge/panel/token</code>。</p>
+    <label for="token">口令</label>
+    <input id="token" type="password" autocomplete="current-password" required>
+    <button type="submit">登录</button>
+    <p id="login-error" class="error" role="alert"></p>
+  </form>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <div>
+      <h1>AIChat桥接</h1>
+      <p id="conn" class="pill">读取中…</p>
+    </div>
+    <div class="header-actions">
+      <button id="refresh" type="button">刷新</button>
+      <button id="logout" type="button" class="secondary">退出</button>
+    </div>
+  </header>
+
+  <section class="assistants" id="assistants" aria-label="助手"></section>
+
+  <section class="panel">
+    <div class="panel-head">
+      <h2 id="scope-title">助手 · 平台</h2>
+      <div class="platform-tabs" id="platforms"></div>
+    </div>
+    <p id="feedback" class="feedback" hidden></p>
+
+    <div class="grid">
+      <div class="block">
+        <h3>连接与通道</h3>
+        <div class="row"><span>助手总开关</span><label class="switch"><input id="enabled-assistant" type="checkbox" role="switch"><span></span></label></div>
+        <div class="row"><span>此平台通道</span><label class="switch"><input id="enabled-channel" type="checkbox" role="switch"><span></span></label></div>
+        <p id="state-line" class="hint"></p>
+      </div>
+
+      <div class="block">
+        <h3>机器人凭据</h3>
+        <label for="app-id">App ID</label>
+        <input id="app-id" autocomplete="off" spellcheck="false">
+        <label for="app-secret">App Secret</label>
+        <input id="app-secret" type="password" autocomplete="new-password" placeholder="留空表示保留现有密钥">
+        <button id="save-app" type="button">保存凭据</button>
+      </div>
+
+      <div class="block">
+        <h3>群绑定</h3>
+        <label for="group">发现的群</label>
+        <select id="group"></select>
+        <label for="tab">已打开的对话</label>
+        <select id="tab"></select>
+        <div class="row-inline">
+          <button id="bind" type="button">绑定此对话</button>
+        </div>
+        <div id="bindings" class="list"></div>
+      </div>
+
+      <div class="block">
+        <h3>关键词拦截</h3>
+        <textarea id="words" rows="8" spellcheck="false"></textarea>
+        <button id="save-words" type="button">保存词表</button>
+      </div>
+    </div>
+
+    <div class="block wide">
+      <h3>运行记录</h3>
+      <div class="row-inline">
+        <button id="clear-history" type="button" class="secondary">清除已结束记录</button>
+        <button id="clear-notices" type="button" class="secondary">清除历史提示</button>
+      </div>
+      <div id="jobs" class="list"></div>
+    </div>
+  </section>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>

@@ -4,7 +4,7 @@ import {spawnSync} from 'node:child_process';
 import {validateWordList} from '../extension/moderation.js';
 let failures=0;
 const fail = message => {failures++;console.error(message);};
-for(const folder of ['extension','test','scripts']) for(const name of fs.readdirSync(folder)) {
+for(const folder of ['extension','test','scripts','deploy/panel','deploy/panel/public']) for(const name of fs.readdirSync(folder)) {
  if(!name.endsWith('.js'))continue;
  const file=path.join(folder,name);const result=spawnSync(process.execPath,['--check',file],{encoding:'utf8'});
  if(result.status!==0)fail(result.stderr);
