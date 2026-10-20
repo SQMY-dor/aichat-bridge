@@ -5,9 +5,11 @@ export const ASSISTANT_ORIGINS = Object.freeze({ chatgpt: 'https://chatgpt.com',
 // /chat/:messageId、/project/:projectId/:messageId、/room/:roomId），未登录时
 // 服务端对这些路径一律 401 并跳到 /login?redirectTo=…。能被绑定的只有带消息
 // 标识的会话页；入口页、登录页与设置页都在下面的保留名单里，绑定会被明确拒绝。
+// 实测（2026-10）确认 /chat 就是可用的对话页：消息列表与输入区都在这里，
+// 且它不带会话 id。因此 /chat 必须可绑定，不能放在保留名单里。
 export const HARK_RESERVED_PATHS = Object.freeze([
   '/', '/login', '/waitlist', '/set-password', '/enroll-2fa', '/verify-age', '/verify-card', '/verify-email',
-  '/accept-invite', '/slack-install', '/preview/billing-notice', '/chat', '/projects', '/projects/new',
+  '/accept-invite', '/slack-install', '/preview/billing-notice', '/projects', '/projects/new',
   '/rooms', '/settings', '/settings/profile', '/settings/security', '/settings/billing', '/plans',
   '/profile', '/soul', '/connect', '/docs/realtime',
 ]);
@@ -27,7 +29,12 @@ export function conversationUrl(value, assistant = 'chatgpt') {
     const url = new URL(value);
     if (assistantForUrl(value) !== assistantId(assistant)) return null;
     const path = url.pathname.replace(/\/+$/, '');
-    const pattern = assistant === 'hark' ? /^\/(?:chat\/[A-Za-z0-9_-]{6,}|project\/[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{6,}|room\/[A-Za-z0-9_-]{6,})$/
+    // 实测的真实形态（2026-10）：
+    //   /project/<uuid>            项目页，消息列表与输入区都在这一页
+    //   /chat                      主页对话
+    //   /chat/<id> / room/<id>     其它会话形态
+    // 项目页只带一个 UUID，早期规则误以为必须两段，会把真实地址判成不可绑定。
+    const pattern = assistant === 'hark' ? /^\/(?:chat(?:\/[A-Za-z0-9_-]{6,})?|project\/[A-Za-z0-9_-]{6,}(?:\/[A-Za-z0-9_-]{6,})?|room\/[A-Za-z0-9_-]{6,})$/
       : assistant === 'qwen' ? /^\/c\/[A-Za-z0-9_-]{8,}$/
       : assistant === 'gemini' ? /^\/(?:u\/\d+\/)?app\/[A-Za-z0-9_-]{8,}$/
       : assistant === 'claude' ? /^\/chat\/[A-Za-z0-9_-]{8,}$/ : /^\/(?:[^/]+\/)*c\/[A-Za-z0-9_-]{8,}$/;

@@ -23,7 +23,7 @@ const fixtures = {
   chatgpt: '<main></main><div data-composer-body><div data-composer-attachments></div><div data-composer-markdown contenteditable="true" role="textbox"></div><button type="submit" aria-label="发送"></button></div>',
   claude: await readFile(new URL('./fixtures/claude-conversation.html', import.meta.url), 'utf8'),
   gemini: await readFile(new URL('./fixtures/gemini-conversation.html', import.meta.url), 'utf8'),
-  hark: '<main><div data-testid="message-list"></div><div data-testid="composer"><div data-testid="composer-attachments"></div><div data-testid="composer-input" contenteditable="true" role="textbox"></div><button data-testid="composer-send" aria-label="发送"></button></div></main>',
+  hark: '<main><div data-testid="message-list"></div><div data-testid="composer"><div data-testid="composer-attachments"></div><textarea data-testid="chat-input" aria-label="Message input"></textarea><button type="button" aria-label="Add attachment"></button><button type="button" data-testid="send-button" aria-label="Start dictation"></button></div></main>',
 };
 const urls = { qwen: qwenUrl, chatgpt: 'https://chatgpt.com/c/composer-lifecycle-fixture', claude: 'https://claude.ai/chat/composer-lifecycle-fixture', gemini: 'https://gemini.google.com/app/composer-lifecycle-fixture', hark: harkUrl };
 const adapters = { chatgpt, claude, gemini, qwen, hark };
@@ -47,8 +47,14 @@ async function fixture(assistant, { remount, action, rpcDelays = {}, timeoutMs =
   doc.execCommand = (command, _ui, text) => { assert.equal(command, 'insertText'); currentInput.textContent = text; return true; };
   const remountComposer = (draft = '') => {
     const replacement = currentScope.cloneNode(true); currentScope.replaceWith(replacement); currentScope = replacement;
-    currentInput = dom.composer(doc); currentInput.textContent = draft; if (assistant === 'qwen') currentInput.value = draft; remounts++;
+    currentInput = dom.composer(doc); currentInput.textContent = draft; if (assistant === 'qwen' || assistant === 'hark') currentInput.value = draft; remounts++;
   };
+  // Hark 只在输入框有内容时才挂载发送键，夹具里先放好一个可点的发送控件。
+  if (assistant === 'hark') {
+    const send = doc.createElement('button');
+    send.type = 'button'; send.setAttribute('aria-label', 'Send message');
+    doc.querySelector('[data-testid="composer"]').append(send);
+  }
   const geminiTemplate = assistant === 'gemini' ? doc.querySelector('.conversation-container').cloneNode(true) : null;
   const appendResponse = (question, final = false) => {
     const id = `lifecycle-${++rows}`; let complete;
@@ -67,7 +73,8 @@ async function fixture(assistant, { remount, action, rpcDelays = {}, timeoutMs =
     } else if (assistant === 'qwen') {
       qwenUser(doc, question, id + '-user'); const row = qwenAnswer(doc, '<p>Final answer</p>', id + '-answer'); row.setAttribute('aria-busy', 'true'); complete = () => row.removeAttribute('aria-busy');
     } else if (assistant === 'hark') {
-      harkUser(doc, question, id + '-user'); const row = harkAnswer(doc, '<p>Final answer</p>', id + '-answer', { streaming: true }); complete = () => harkFinish(doc, id + '-answer', '<p>Final answer</p>');
+      // 真机上 message-text 直接持有纯文本，不是 HTML。
+      harkUser(doc, question, id + '-user'); const row = harkAnswer(doc, 'Final answer', id + '-answer', { streaming: true }); complete = () => harkFinish(doc, id + '-answer', 'Final answer');
     } else {
       const row = geminiTemplate.cloneNode(true); row.id = id; row.querySelector('.query-text').textContent = question;
       row.querySelector('.markdown-main-panel').innerHTML = '<p>Final answer</p>'; row.querySelector('.markdown-main-panel').setAttribute('aria-busy', 'true'); row.querySelector('.response-footer').classList.remove('complete');
@@ -77,7 +84,7 @@ async function fixture(assistant, { remount, action, rpcDelays = {}, timeoutMs =
     if (final) complete(); return complete;
   };
   const afterRemountAction = () => {
-    if (action === 'human') { currentInput.textContent = 'Human replacement draft'; if (assistant === 'qwen') currentInput.value = 'Human replacement draft'; guards.get('input')?.({ type: 'input', isTrusted: true, target: currentInput }); }
+    if (action === 'human') { currentInput.textContent = 'Human replacement draft'; if (assistant === 'qwen' || assistant === 'hark') currentInput.value = 'Human replacement draft'; guards.get('input')?.({ type: 'input', isTrusted: true, target: currentInput }); }
     if (action === 'navigation') win.history.replaceState({}, '', assistant === 'gemini' ? '/app/different-conversation' : assistant === 'hark' ? '/chat/different-conversation' : assistant === 'claude' ? '/chat/different-conversation' : '/c/different-conversation');
     if (action === 'second-user') appendResponse('A human follow-up', true);
   };
@@ -85,7 +92,7 @@ async function fixture(assistant, { remount, action, rpcDelays = {}, timeoutMs =
     if (remount === 'before-send') schedule(() => remountComposer('Human replacement draft'), 200);
   });
   dom.sendButton(doc, originalInput).addEventListener('click', () => {
-    clicks++; const question = dom.composerText(currentInput); currentInput.textContent = ''; if (assistant === 'qwen') currentInput.value = '';
+    clicks++; const question = dom.composerText(currentInput); currentInput.textContent = ''; if (assistant === 'qwen' || assistant === 'hark') currentInput.value = '';
     if (remount === 'on-submit') remountComposer();
     if (remount === 'while-confirming' || remount === 'temporary-gap') schedule(() => {
       if (remount === 'temporary-gap') {

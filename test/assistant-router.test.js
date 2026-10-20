@@ -203,7 +203,11 @@ test('Hark accepts only signed-in conversation routes on app.hark.com and reject
   assert.equal(conversationUrl('https://app.hark.com/chat/conversation-one/?x=1#part', 'hark'), 'https://app.hark.com/chat/conversation-one');
   assert.equal(conversationUrl('https://app.hark.com/project/project-one/message-one', 'hark'), 'https://app.hark.com/project/project-one/message-one');
   assert.equal(conversationUrl('https://app.hark.com/room/room-one', 'hark'), 'https://app.hark.com/room/room-one');
-  for (const path of ['/', '/login', '/chat', '/chat/short', '/projects', '/projects/new', '/rooms', '/settings', '/settings/billing', '/plans', '/profile', '/soul', '/connect', '/docs/realtime', '/verify-age']) {
+  // 实测：项目页只带一个 UUID，且 /chat 本身就是可用的对话页，两者都必须可绑定。
+  assert.equal(conversationUrl('https://app.hark.com/project/fd8bb7d0-8fce-4553-98f3-cdf100870f64', 'hark'),
+    'https://app.hark.com/project/fd8bb7d0-8fce-4553-98f3-cdf100870f64');
+  assert.equal(conversationUrl('https://app.hark.com/chat', 'hark'), 'https://app.hark.com/chat');
+  for (const path of ['/', '/login', '/projects', '/projects/new', '/rooms', '/settings', '/settings/billing', '/plans', '/profile', '/soul', '/connect', '/docs/realtime', '/verify-age', '/chat/short']) {
     assert.equal(conversationUrl('https://app.hark.com' + path, 'hark'), null, path);
   }
   assert.equal(conversationUrl('https://hark.com/chat/conversation-one', 'hark'), null);

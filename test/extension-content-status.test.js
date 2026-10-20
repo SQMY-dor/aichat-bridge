@@ -24,7 +24,7 @@ const fixtures = {
   chatgpt: '<main></main><div data-composer-body><div data-composer-attachments></div><div data-composer-markdown contenteditable="true" role="textbox"></div><button type="submit" aria-label="发送"></button></div>',
   claude: await readFile(new URL('./fixtures/claude-conversation.html', import.meta.url), 'utf8'),
   gemini: await readFile(new URL('./fixtures/gemini-conversation.html', import.meta.url), 'utf8'),
-  hark: '<main><div data-testid="message-list"></div><div data-testid="composer"><div data-testid="composer-attachments"></div><div data-testid="composer-input" contenteditable="true" role="textbox"></div><button data-testid="composer-send" aria-label="发送"></button></div></main>',
+  hark: '<main><div data-testid="message-list"></div><div data-testid="composer"><div data-testid="composer-attachments"></div><textarea data-testid="chat-input" aria-label="Message input"></textarea><button type="button" aria-label="Add attachment"></button><button type="button" data-testid="send-button" aria-label="Start dictation"></button></div></main>',
 };
 const urls = { qwen: qwenUrl, chatgpt: 'https://chatgpt.com/c/status-recovery-fixture', claude: 'https://claude.ai/chat/status-recovery-fixture', gemini: 'https://gemini.google.com/app/status-recovery-fixture', hark: harkUrl };
 const adapters = { chatgpt, claude, gemini, qwen, hark };
@@ -45,7 +45,7 @@ async function fixture(assistant, { blocked, rpcFailure = false, pollResponse = 
   doc.execCommand = (command, _ui, text) => { assert.equal(command, 'insertText'); input.textContent = text; return true; };
   const setBlocked = value => {
     if (value === 'missing') { placeholder = doc.createComment('detached composer'); input.replaceWith(placeholder); }
-    else if (value === 'draft') { input.textContent = 'Existing private draft'; if (assistant === 'qwen') input.value = 'Existing private draft'; }
+    else if (value === 'draft') { input.textContent = 'Existing private draft'; if (assistant === 'qwen' || assistant === 'hark') input.value = 'Existing private draft'; }
     else if (value === 'busy') {
       if (assistant === 'qwen') {
         blocker = doc.createElement('button'); blocker.className = 'stop'; blocker.setAttribute('aria-label', '停止'); doc.querySelector('.message-input-right-button-send').append(blocker);
@@ -64,12 +64,18 @@ async function fixture(assistant, { blocked, rpcFailure = false, pollResponse = 
   const recover = () => {
     if (placeholder) { placeholder.replaceWith(input); placeholder = null; }
     if (blocker) { blocker.remove(); blocker = null; }
-    if (dom.composerText(input) === 'Existing private draft') { input.textContent = ''; if (assistant === 'qwen') input.value = ''; }
+    if (dom.composerText(input) === 'Existing private draft') { input.textContent = ''; if (assistant === 'qwen' || assistant === 'hark') input.value = ''; }
     rpcError = false;
   };
   const geminiRow = assistant === 'gemini' ? doc.querySelector('.conversation-container').cloneNode(true) : null;
+  // Hark 只在输入框有内容时才挂载发送键，夹具里先放好一个可点的发送控件。
+  if (assistant === 'hark') {
+    const send = doc.createElement('button');
+    send.type = 'button'; send.setAttribute('aria-label', 'Send message');
+    doc.querySelector('[data-testid="composer"]').append(send);
+  }
   dom.sendButton(doc, input).addEventListener('click', () => {
-    clicks++; const text = dom.composerText(input); input.textContent = ''; if (assistant === 'qwen') input.value = '';
+    clicks++; const text = dom.composerText(input); input.textContent = ''; if (assistant === 'qwen' || assistant === 'hark') input.value = '';
     if (assistant === 'chatgpt') {
       doc.querySelector('main').insertAdjacentHTML('beforeend', `<div data-turn-key="status-${clicks}"><div data-talvt-turn-state="complete"><div data-chatgpt-search-unit-key="status-${clicks}:0:user" data-chatgpt-search-message-ids="status-${clicks}-user"><div data-user-message-bubble="true"></div></div><div data-chatgpt-search-unit-key="status-${clicks}:1:assistant" data-chatgpt-search-message-ids="status-${clicks}-assistant"><div data-markdown-text-style="assistant-message"><p>Final answer</p></div></div><div class="turn-action-controls"><button aria-label="复制">Copy</button></div></div></div>`);
       doc.querySelector(`[data-turn-key="status-${clicks}"] [data-user-message-bubble]`).textContent = text;

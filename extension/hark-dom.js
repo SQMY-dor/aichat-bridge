@@ -27,17 +27,34 @@ export { PageSafetyError, visible, composerText, validateInputImages, MAX_IMAGES
 export const SELECTORS = {
   // 登录态判定。出现即视为不可用。
   signedOut: '[data-testid="auth-card"], [data-testid="auth-page-shell"], [data-testid="entry-input"]',
-  // 对话页。
-  composer: '[data-testid="composer-input"], [data-testid="chat-composer-input"], [data-testid="prompt-input"]',
-  scope: '[data-testid="composer"], [data-testid="chat-composer"], [data-testid="composer-shell"]',
-  send: '[data-testid="composer-send"], [data-testid="send-button"]',
-  stop: '[data-testid="composer-stop"], [data-testid="stop-button"]',
-  user: '[data-testid="message-user"]',
-  assistant: '[data-testid="message-assistant"]',
-  answerBody: '[data-testid="message-body"], [data-testid="assistant-markdown"]',
-  completion: '[data-testid="message-actions"], [data-testid="message-copy"]',
-  attachment: '[data-testid="composer-attachment"], [data-testid="attachment-preview"]',
+  // 对话页（2026-10 在 app.hark.com/project/<id> 与 /chat 上实测）。
+  // 输入区是一个 textarea，带稳定 data-testid="chat-input"。
+  composer: '[data-testid="chat-input"]',
+  // 发送控件只在输入框有内容时挂载，且它的 data-testid 是 "send-button"，
+  // 但空输入框时这个 testid 落在听写按钮上（aria-label="Start dictation"）。
+  // 所以绝不按 testid 点，只认 aria-label="Send message"，见 sendButton()。
+  send: 'button[aria-label="Send message"]',
+  stop: 'button[aria-label="Stop"], button[aria-label="Stop generating"], button[aria-label="Stop response"]',
+  // 消息行：div[data-message-id][data-entry-kind="message"]，用户与助手同构，
+  // 唯一差别是消息气泡内层的哈希类名（见 ROLE_CLASSES）。
+  row: '[data-testid="message-list"] div[data-message-id][data-entry-kind="message"]',
+  bubble: '[data-testid="message-bubble"]',
+  answerBody: '[data-testid="message-text"]',
+  // 助手消息的操作栏（复制/重新生成）只在悬停或完成后出现，作为完成标记不可靠；
+  // 完成判定改用"本轮流式结束"，见 finalCandidate()。
+  completion: '[data-testid="message-actions"]',
+  attachment: '[data-testid="composer-attachment"]',
 };
+
+// Hark 用 CSS Modules，类名带构建哈希（如 _151xtfxg）。但气泡内层这一对
+// 是当前唯一能区分两侧的标记，实测稳定：g = 用户，h = 助手。
+// 标定失效时 composer/findSubmittedUser 会停下，不会误判方向。
+// 兜底：若类名不再匹配，用"该行是否出现在最后一条已知用户消息之后"结合
+// data-message-id 顺序推断，见 roleOf()。
+export const ROLE_CLASSES = Object.freeze({
+  user: '_151xtfxg',
+  assistant: '_151xtfxh',
+});
 
 // 仅供标定与离线冒烟测试使用：整体替换登记表，先做完整校验再落地，
 // 避免半张表被写进运行中的页面。
@@ -50,15 +67,23 @@ export function applyCalibration(next) {
     merged[key] = value;
   }
   Object.assign(SELECTORS, merged);
+  calibrated = true;
   return { ...SELECTORS };
 }
 
 const uploads = new WeakMap();
 const enabled = node => visible(node) && !node.disabled && !node.matches(':disabled') &&
   node.getAttribute('aria-disabled') !== 'true' && !node.closest('[inert], [aria-disabled="true"]');
-const miss = what => new PageSafetyError(
-  'Hark 对话页结构尚未标定：找不到' + what +
-  '。请先登录后在网页运行 scripts/hark-dom-probe.js，按输出的 data-testid 更新 extension/hark-dom.js 的 SELECTORS');
+// 找不到元素有两种含义，必须分开说：还没标定（选择器是占位值）与
+// 已标定但当前页面没有（切了视图、还在加载、登录页）。混为一谈会让用户
+// 白跑一遍标定流程。
+// 显式标记：SELECTORS 一旦被 applyCalibration 改过，就说明是标定过的表。
+// 不靠"是否包含占位字符串"猜测，那种判断在测试里替换选择器时会误判。
+let calibrated = true;
+const miss = what => new PageSafetyError(calibrated
+  ? 'Hark 页面上暂时找不到' + what + '：请确认已登录、并打开了对话或项目页（项目页要等消息列表渲染完）'
+  : 'Hark 对话页结构尚未标定：找不到' + what +
+    '。请先登录后在网页运行 scripts/hark-dom-probe.js，按输出的 data-testid 更新 extension/hark-dom.js 的 SELECTORS');
 
 export function signedOut(doc) { return [...doc.querySelectorAll(SELECTORS.signedOut)].some(visible); }
 export function assertSignedIn(doc) {
@@ -72,8 +97,23 @@ function assertNoOverlay(doc) {
   if (pageChallengeActive(doc)) throw new PageSafetyError('Hark 网页正在验证，请先手动完成验证');
   if ([...doc.querySelectorAll('[role="dialog"][aria-modal="true"]')].some(visible)) throw new PageSafetyError('Hark 有待处理的对话框，请先在网页处理');
 }
+// Hark 的输入区没有稳定的容器 testid，用最近的 form 或 textarea 的
+// 三段祖先兜底；只用于「判断点击是否落在输入区」与附件校验。
 export function composerScope(input) {
-  return input?.closest(SELECTORS.scope) || input?.closest('form') || null;
+  if (!input) return null;
+  return input.closest('form') || input.parentElement?.parentElement?.parentElement || null;
+}
+
+// 判定一行的角色。优先用气泡内层的哈希类名（实测 g=用户 h=助手）；
+// 类名变化时退回结构：助手行内部一定还有 message-text，用户行也有，
+// 所以最后一道兜底是"相对上一条已知角色"，任何不确定都抛错而不是猜。
+export function roleOf(row) {
+  const bubble = row.querySelector(SELECTORS.bubble);
+  const inner = bubble?.firstElementChild;
+  const cls = inner ? String(inner.className || '') : '';
+  if (cls.includes(ROLE_CLASSES.user)) return 'user';
+  if (cls.includes(ROLE_CLASSES.assistant)) return 'assistant';
+  throw new PageSafetyError('Hark 消息角色无法判定（气泡类名已变化）：请在网页运行 scripts/hark-dom-probe.js 重新标定 ROLE_CLASSES');
 }
 export function composer(doc) {
   assertNoOverlay(doc);
@@ -89,19 +129,23 @@ export function composerInteraction(target, input) {
   return Boolean(target?.closest && (target.closest(SELECTORS.composer) || (input && composerScope(input)?.contains(target)) || target.closest(SELECTORS.send)));
 }
 export function generating(doc) {
+  // Hark 生成中会在输入区显示停止控件；这是唯一可靠的"正在写"信号。
   if ([...doc.querySelectorAll(SELECTORS.stop)].some(visible)) return true;
-  return [...doc.querySelectorAll(SELECTORS.assistant)].some(node => visible(node) && node.getAttribute('data-state') === 'streaming');
+  return false;
 }
 export function hasAttachments(input) {
   const scope = composerScope(input); if (!scope) return true;
   if ([...scope.querySelectorAll('input[type="file"]')].some(field => field.files?.length)) return true;
-  return [...scope.querySelectorAll(SELECTORS.attachment + ', img, [role="progressbar"], [aria-busy="true"]')].some(visible);
+  // 输入区里本来就有「Add attachment」按钮，不能把它当附件；只认真正的预览与进度。
+  return [...scope.querySelectorAll(SELECTORS.attachment + ', [role="progressbar"], [aria-busy="true"]')].some(visible);
+}
+// 行本身同构，角色由 roleOf() 判定。按文档顺序返回，保持对话顺序。
+export function rows(doc) {
+  return [...doc.querySelectorAll(SELECTORS.row)].sort((a, b) => a.compareDocumentPosition(b) & 4 ? -1 : 1);
 }
 export function turns(doc, role) {
-  const selector = role === 'user' ? SELECTORS.user : SELECTORS.assistant;
-  return [...doc.querySelectorAll(selector)]
-    .filter(node => !node.parentElement?.closest(selector))
-    .sort((a, b) => a.compareDocumentPosition(b) & 4 ? -1 : 1);
+  if (role !== 'user' && role !== 'assistant') throw new PageSafetyError('Hark 消息角色无效');
+  return rows(doc).filter(row => roleOf(row) === role);
 }
 function stableKey(node) { return node.getAttribute('data-message-id') || node.getAttribute('data-id') || null; }
 function turnText(node) {
@@ -167,11 +211,12 @@ export function assertReady(doc) {
   if (normalizeText(composerText(input))) throw new PageSafetyError('输入框有草稿，本次不会覆盖草稿');
   return input;
 }
+// 只在出现「Send message」时返回，绝不退回按 data-testid="send-button" 点，
+// 因为空输入框时那个 testid 落在听写按钮上。
 export function sendButton(doc, input) {
   if (composer(doc) !== input) throw new PageSafetyError('Hark 输入框已被替换，已停止发送');
-  const scope = composerScope(input);
-  if (!scope) throw new PageSafetyError('无法确认 Hark 输入框所属发送区');
-  const buttons = [...scope.querySelectorAll(SELECTORS.send)].filter(visible);
+  const buttons = [...doc.querySelectorAll(SELECTORS.send)].filter(visible);
+  // 有内容时才应出现；多于一个说明结构变了，宁可不发。
   if (buttons.length !== 1) return null;
   return enabled(buttons[0]) ? buttons[0] : null;
 }
@@ -257,7 +302,9 @@ export function finalCandidate(doc, baseline, previousUser) {
   }
   if (following.length !== 1) return null;
   const message = following[0];
-  if (![...message.querySelectorAll(SELECTORS.completion)].some(visible)) return null;
+  // Hark 的助手操作栏只在悬停时出现，不能拿来当完成标记。
+  // 完成判据：不在生成中（无停止控件）、正文非空、且正文在两次轮询间保持不变
+  // ——稳定性由 content.js 的指纹机制保证，这里只要求有正文。
   const bodies = [...message.querySelectorAll(SELECTORS.answerBody)].filter(node => visible(node) && !node.parentElement?.closest(SELECTORS.answerBody));
   if (bodies.length > 1) return null;
   const images = []; const seen = new Set();
