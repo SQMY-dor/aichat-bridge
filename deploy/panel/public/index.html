@@ -60,6 +60,9 @@
         <h3>群绑定</h3>
         <label for="group">发现的群</label>
         <select id="group"></select>
+        <label for="manual-group">或手动填写群标识</label>
+        <input id="manual-group" autocomplete="off" spellcheck="false" placeholder="QQ 填群 openid；飞书填 chat_id">
+        <p class="hint">列表为空说明机器人还没收到过该群的 @ 消息：在群里 @ 它一次再刷新，或直接填群标识。</p>
         <label for="tab">已打开的对话</label>
         <select id="tab"></select>
         <div class="row-inline">

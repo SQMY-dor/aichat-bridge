@@ -413,14 +413,16 @@ function wire() {
   }));
 
   $('bind').addEventListener('click', () => run(async () => {
-    const tabId = Number($('tab').value);
-    const chatId = $('group').value;
-    if (!chatId) throw new Error('请先选择一个群');
+    // 手动填写的群标识优先：机器人没收到过群消息时下拉列表是空的，
+    // 但绑定本身只需要一个合法 chatId，扩展侧会直接接受。
+    const chatId = ($('manual-group').value.trim() || $('group').value).trim();
+    if (!chatId) throw new Error('请选择发现的群，或手动填写群标识（group_openid / chat_id）');
     const tabs = (statuses[activeAssistant] && statuses[activeAssistant].tabs) || [];
+    const tabId = Number($('tab').value);
     const tab = tabs.find(item => item.tabId === tabId);
-    if (!tab) throw new Error('请选择一个已打开的对话');
+    if (!tab) throw new Error(tabs.length ? '请选择一个已打开的对话' : '没有可绑定的对话：请先在浏览器里打开该助手的会话页，再刷新');
     await rpc('options:bind', { ...scope(), chatId, tabId, conversationUrl: tab.conversationUrl });
-    feedback('已绑定。');
+    feedback('已绑定 ' + chatId + ' → ' + tab.title + '。到群里 @ 机器人即可开始。');
     await refresh();
   }));
 

@@ -29,6 +29,16 @@ test('登录与主界面互斥，且初始化时主界面默认不可见', () =>
   assert.match(app, /function showApp\(\)[\s\S]{0,200}app'\)\.hidden = false/);
 });
 
+test('面板支持手动填写群标识，不再只能从"发现的群"里选', () => {
+  const html = fs.readFileSync(path.join(PUBLIC, 'index.html'), 'utf8');
+  // 机器人没收到过群消息时下拉列表是空的；没有手动输入就无法完成绑定。
+  assert.match(html, /id="manual-group"/, '面板必须提供手动群标识输入');
+  assert.match(html, /group_openid|chat_id/, '提示里要说明该填什么标识');
+  const bind = app.slice(app.indexOf("$('bind').addEventListener"), app.indexOf("$('save-words')"));
+  assert.match(bind, /manual-group/, '绑定时必须优先读取手动输入');
+  assert.match(bind, /没有可绑定的对话/, '没有对话标签页时要给出明确原因');
+});
+
 test('登录成功后必须真正进入主界面，而不是停在登录框', () => {
   // login() 成功后要保存 csrf、切到主界面并立刻刷新状态。
   const body = app.slice(app.indexOf('async function login('), app.indexOf('async function logout('));
