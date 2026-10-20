@@ -114,13 +114,14 @@ function controls() {
     const card = $('card-' + assistant);
     if (!card) continue;
     card.classList.toggle('selected', assistant === activeAssistant);
-    card.querySelector('button').disabled = busy || assistant === activeAssistant;
+    // 只有 busy 才禁用；已选中的助手保持可点，点了会明确回应。
+    card.querySelector('button').disabled = busy;
   }
   for (const platform of Object.keys(PLATFORMS)) {
     const tab = $('tab-' + platform);
     if (!tab) continue;
     tab.classList.toggle('active', platform === activePlatform);
-    tab.disabled = busy || platform === activePlatform;
+    tab.disabled = busy;
   }
 }
 
@@ -149,8 +150,12 @@ function renderAssistants() {
     }
     card.append(el('p', parts.join(' · ') || '状态尚未确认'));
 
-    const button = el('button', assistant === activeAssistant ? '正在配置' : '配置 ' + NAMES[assistant]);
+    // 当前已选中的助手不再禁用按钮：禁用会让人以为点击坏了（点了没反应、
+    // 也没有任何提示）。改成可点，但点它时明确说明"已经在这个助手上了"。
+    const current = assistant === activeAssistant;
+    const button = el('button', current ? '当前：' + NAMES[assistant] : '配置 ' + NAMES[assistant]);
     button.type = 'button';
+    button.setAttribute('aria-current', current ? 'true' : 'false');
     button.addEventListener('click', () => selectAssistant(assistant));
     card.append(button);
     container.append(card);
@@ -349,7 +354,9 @@ async function selectScope() {
 }
 
 async function selectAssistant(assistant) {
-  if (busy || assistant === activeAssistant) return;
+  if (busy) { feedback('上一个操作还没完成，请稍等。', true); return; }
+  // 点自己也要有回应，否则用户无法判断是"已经在这了"还是"按钮坏了"。
+  if (assistant === activeAssistant) { feedback('当前已经在配置 ' + NAMES[assistant] + '。改动左侧或下方的设置即可。'); return; }
   saveDraft();
   activeAssistant = assistant;
   renderAssistants();
@@ -361,7 +368,8 @@ async function selectAssistant(assistant) {
 }
 
 async function selectPlatform(platform) {
-  if (busy || platform === activePlatform) return;
+  if (busy) { feedback('上一个操作还没完成，请稍等。', true); return; }
+  if (platform === activePlatform) { feedback('当前已经在 ' + PLATFORMS[platform] + ' 通道。'); return; }
   saveDraft();
   activePlatform = platform;
   renderPlatforms();
