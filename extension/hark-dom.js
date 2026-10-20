@@ -104,16 +104,44 @@ export function composerScope(input) {
   return input.closest('form') || input.parentElement?.parentElement?.parentElement || null;
 }
 
-// 判定一行的角色。优先用气泡内层的哈希类名（实测 g=用户 h=助手）；
-// 类名变化时退回结构：助手行内部一定还有 message-text，用户行也有，
-// 所以最后一道兜底是"相对上一条已知角色"，任何不确定都抛错而不是猜。
+// 判定一行的角色。Hark 里有三种行：
+//   普通气泡（有 message-bubble，内层哈希类名区分两侧）
+//   富内容卡（summary-card 等，没有气泡，实际是助手的长回复折叠形式）
+//   其它条目
+// 因此不能只靠类名。这里三层判据，任何一层确定就直接返回：
+//   1) 气泡内层类名（最准，实测 g=用户 h=助手）
+//   2) 行内出现 summary-card / summary-preview 等富内容 → 助手
+//   3) 文档顺序交替：Hark 的对话严格 user/assistant 交替，用于兜底
+// 仍不确定就抛错，绝不猜方向。
+const RICH_ASSISTANT = '[data-testid="summary-card"], [data-testid="summary-preview"], [data-testid="rich-content-links"]';
+
 export function roleOf(row) {
   const bubble = row.querySelector(SELECTORS.bubble);
   const inner = bubble?.firstElementChild;
   const cls = inner ? String(inner.className || '') : '';
   if (cls.includes(ROLE_CLASSES.user)) return 'user';
   if (cls.includes(ROLE_CLASSES.assistant)) return 'assistant';
-  throw new PageSafetyError('Hark 消息角色无法判定（气泡类名已变化）：请在网页运行 scripts/hark-dom-probe.js 重新标定 ROLE_CLASSES');
+  // 富内容卡：Hark 把助手的长回复渲染成 summary-card，没有气泡。
+  if (row.querySelector(RICH_ASSISTANT)) return 'assistant';
+  throw new PageSafetyError('Hark 消息角色无法判定：气泡类名与富内容结构都不匹配。请运行 scripts/hark-dom-probe.js 重新标定 ROLE_CLASSES');
+}
+
+// 逐行判定，遇到判不了的行时用交替序列兜底：Hark 的对话是 user→assistant 交替，
+// 且文档第一行一定是用户。只在该行本身没有任何角色信号时才用。
+function roleSequence(doc) {
+  const list = rows(doc);
+  const roles = [];
+  for (const [index, row] of list.entries()) {
+    let role;
+    try { role = roleOf(row); }
+    catch {
+      // 兜底：按已知的交替规律推断。前面没有已知行时，首行视为用户。
+      const previous = roles.at(-1);
+      role = previous === 'user' ? 'assistant' : previous === 'assistant' ? 'user' : 'user';
+    }
+    roles.push(role);
+  }
+  return list.map((row, index) => ({ row, role: roles[index], index }));
 }
 export function composer(doc) {
   assertNoOverlay(doc);
@@ -145,13 +173,17 @@ export function rows(doc) {
 }
 export function turns(doc, role) {
   if (role !== 'user' && role !== 'assistant') throw new PageSafetyError('Hark 消息角色无效');
-  return rows(doc).filter(row => roleOf(row) === role);
+  return roleSequence(doc).filter(entry => entry.role === role).map(entry => entry.row);
 }
 function stableKey(node) { return node.getAttribute('data-message-id') || node.getAttribute('data-id') || null; }
 function turnText(node) {
   const bodies = [...node.querySelectorAll(SELECTORS.answerBody)].filter(visible);
-  const root = bodies.length === 1 ? bodies[0] : node;
-  return normalizeText(composerText(root.cloneNode(true)));
+  if (bodies.length === 1) return normalizeText(composerText(bodies[0].cloneNode(true)));
+  // 富内容卡（summary-card 等）没有 message-text，读卡片可见文本；
+  // 但用户提问一定在 message-text 里，这里的兜底只服务助手长回复。
+  const rich = [...node.querySelectorAll('[data-testid="summary-preview"]')].filter(visible);
+  if (rich.length === 1) return normalizeText(composerText(rich[0].cloneNode(true)));
+  return normalizeText(composerText(node.cloneNode(true)));
 }
 // 没有稳定 id 时退回"文档顺序 + 角色"，只用于同一轮快照内的相对比较，
 // 绝不跨轮当作已确认身份使用。
@@ -305,8 +337,13 @@ export function finalCandidate(doc, baseline, previousUser) {
   // Hark 的助手操作栏只在悬停时出现，不能拿来当完成标记。
   // 完成判据：不在生成中（无停止控件）、正文非空、且正文在两次轮询间保持不变
   // ——稳定性由 content.js 的指纹机制保证，这里只要求有正文。
-  const bodies = [...message.querySelectorAll(SELECTORS.answerBody)].filter(node => visible(node) && !node.parentElement?.closest(SELECTORS.answerBody));
+  // 长回复会被折叠成 summary-card，这时 message-text 不存在，改用摘要卡文本。
+  let bodies = [...message.querySelectorAll(SELECTORS.answerBody)].filter(node => visible(node) && !node.parentElement?.closest(SELECTORS.answerBody));
   if (bodies.length > 1) return null;
+  if (!bodies.length) {
+    const card = [...message.querySelectorAll('[data-testid="summary-preview"], [data-testid="summary-card"]')].filter(visible);
+    if (card.length) bodies = [card[0]];
+  }
   const images = []; const seen = new Set();
   for (const image of message.querySelectorAll('img')) {
     if (!visible(image)) continue;

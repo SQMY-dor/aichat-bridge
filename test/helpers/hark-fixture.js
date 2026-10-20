@@ -92,6 +92,20 @@ export function loaded(image, values = {}) {
     .map(([key, value]) => [key, { value, configurable: true }])));
 }
 
+// 富内容卡：Hark 把助手的长回复渲染成 summary-card，没有 message-bubble。
+// 这是实测到的第三种行形态，适配器必须能把它认成助手消息。
+export function summaryAnswer(doc, body = '长回复摘要', id = 'summary-1') {
+  const list = doc.querySelector('[data-testid="message-list"]');
+  list.insertAdjacentHTML('beforeend',
+    '<div data-message-id="' + id + '" data-entry-kind="message">' +
+    '<div><div data-testid="summary-card">' +
+    '<div data-testid="summary-preview"></div>' +
+    '</div></div></div>');
+  const node = doc.querySelector('[data-message-id="' + id + '"]');
+  node.querySelector('[data-testid="summary-preview"]').textContent = body;
+  return node;
+}
+
 export function attachment(doc, name) {
   const card = doc.createElement('div');
   card.dataset.testid = 'composer-attachment';

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as hark from '../extension/hark-dom.js';
-import { url, page, signedOutPage, user, answer, finish, sendButton, stopButton, attachment, loaded } from './helpers/hark-fixture.js';
+import { url, page, signedOutPage, user, answer, finish, sendButton, stopButton, attachment, loaded, summaryAnswer } from './helpers/hark-fixture.js';
 
 // 这些用例跑在按真机结构写的合成 DOM 上，验证适配器契约。
 // 结构来源：app.hark.com/project/<id>，2026-10 实测（见 scripts/hark-probe-result.json）。
@@ -66,6 +66,31 @@ test('hark 用气泡内层类名区分用户与助手，判定不了就抛错', 
   const bubble = reply.querySelector('[data-testid="message-bubble"]');
   bubble.firstElementChild.className = '_151xtfxf _renamed';
   assert.throws(() => hark.roleOf(reply), /角色无法判定/);
+});
+
+test('hark 把没有气泡的富内容卡（summary-card）认成助手消息', () => {
+  const doc = page().window.document;
+  const mine = user(doc, '问一个问题', 'user-1');
+  const rich = summaryAnswer(doc, '长回复被折叠成摘要卡', 'summary-1');
+  // 富内容卡没有 message-bubble，必须靠结构而不是类名判定。
+  assert.equal(rich.querySelector('[data-testid="message-bubble"]'), null);
+  assert.equal(hark.roleOf(rich), 'assistant');
+  assert.deepEqual(hark.turns(doc, 'user'), [mine]);
+  assert.deepEqual(hark.turns(doc, 'assistant'), [rich]);
+});
+
+test('hark 在没有任何角色信号时按 user/assistant 交替兜底，而不是抛错', () => {
+  const doc = page().window.document;
+  user(doc, '第一问', 'user-1');
+  answer(doc, '第一答', 'answer-1');
+  // 一条既无气泡也无富内容标记的行：按交替规律应为用户。
+  const list = doc.querySelector('[data-testid="message-list"]');
+  list.insertAdjacentHTML('beforeend', '<div data-message-id="mystery-1" data-entry-kind="message"><div>未知结构</div></div>');
+  const mystery = doc.querySelector('[data-message-id="mystery-1"]');
+  assert.throws(() => hark.roleOf(mystery), /无法判定/);
+  const users = hark.turns(doc, 'user');
+  assert.equal(users.length, 2);
+  assert.equal(users.at(-1), mystery);
 });
 
 test('hark 用快照差值确认本次新提问，并把内容不符的新消息当作归属失败', () => {
