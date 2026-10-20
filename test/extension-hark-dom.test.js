@@ -116,21 +116,39 @@ test('hark 正文尚未挂全的新提问只报 pending，不确认也不授权�
   assert.equal(hark.submittedUserPending(doc, baseline, '这是一个很长的提问'), false);
 });
 
-test('hark 只有本轮唯一的助手回复才算最终答案，多回复返回 null', () => {
+test('hark 把一轮回复的多个片段（气泡 + 富文本卡）合并成一个答案', () => {
   const doc = page().window.document;
   user(doc, '问题', 'user-0');
   const baseline = hark.snapshot(doc);
-  const mine = user(doc, '新问题', 'user-1');
-  assert.equal(hark.findSubmittedUser(doc, baseline, '新问题'), mine);
+  const mine = user(doc, '重新发一下', 'user-1');
+  assert.equal(hark.findSubmittedUser(doc, baseline, '重新发一下'), mine);
   // 还没有回复。
   assert.equal(hark.finalCandidate(doc, baseline, mine), null);
-  answer(doc, '最终回复', 'answer-1');
+
+  // Hark 实测行为：先一条普通气泡，再跟一条摘要卡，同属一次回复。
+  answer(doc, '第一段正文', 'answer-1');
+  summaryAnswer(doc, '第二段卡片内容', 'summary-1');
   const candidate = hark.finalCandidate(doc, baseline, mine);
-  assert.equal(candidate.text, '最终回复');
+  assert.ok(candidate, '两段都属于本轮，应合并而不是判失败');
+  assert.match(candidate.text, /第一段正文/);
+  assert.match(candidate.text, /第二段卡片内容/);
   assert.deepEqual(candidate.images, []);
-  // 出现第二个助手回复 → 归属不明，返回 null。
-  answer(doc, '另一个回复', 'answer-2');
+});
+
+test('hark 只有本轮之后的消息才计入答案，上一轮的回复不会混进来', () => {
+  const doc = page().window.document;
+  // 上一轮
+  user(doc, '上一问', 'user-0');
+  answer(doc, '上一答', 'answer-0');
+  const baseline = hark.snapshot(doc);
+  const mine = user(doc, '新问题', 'user-1');
+  assert.equal(hark.findSubmittedUser(doc, baseline, '新问题'), mine);
+  // 本轮回复出现前没有候选。
   assert.equal(hark.finalCandidate(doc, baseline, mine), null);
+  answer(doc, '本轮答案', 'answer-1');
+  const candidate = hark.finalCandidate(doc, baseline, mine);
+  assert.equal(candidate.text, '本轮答案');
+  assert.doesNotMatch(candidate.text, /上一答/);
 });
 
 test('hark 生成中的停止键会阻止新任务', () => {

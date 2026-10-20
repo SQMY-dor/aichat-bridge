@@ -332,31 +332,44 @@ export function finalCandidate(doc, baseline, previousUser) {
   if ([...doc.querySelectorAll('[role="alert"]')].filter(visible).some(node => current.compareDocumentPosition(node) & 4)) {
     throw new PageSafetyError('Hark 网页回复失败，请在网页处理；本次不会重新提问');
   }
-  if (following.length !== 1) return null;
+  if (!following.length) return null;
+  // 一次回复可能被 Hark 拆成多条消息：普通气泡 + 后面的富文本卡片（summary-card）。
+  // 这不是两轮对话，而是一轮的多个片段。全部属于本轮时才合并；
+  // 一旦夹进新的用户消息，说明已经进入下一轮，直接停。
   const message = following[0];
+  const lastUserIndex = rows(doc).indexOf(current);
+  for (const node of following) {
+    if (rows(doc).indexOf(node) < lastUserIndex) return null;
+  }
   // Hark 的助手操作栏只在悬停时出现，不能拿来当完成标记。
   // 完成判据：不在生成中（无停止控件）、正文非空、且正文在两次轮询间保持不变
   // ——稳定性由 content.js 的指纹机制保证，这里只要求有正文。
-  // 长回复会被折叠成 summary-card，这时 message-text 不存在，改用摘要卡文本。
-  let bodies = [...message.querySelectorAll(SELECTORS.answerBody)].filter(node => visible(node) && !node.parentElement?.closest(SELECTORS.answerBody));
-  if (bodies.length > 1) return null;
-  if (!bodies.length) {
-    const card = [...message.querySelectorAll('[data-testid="summary-preview"], [data-testid="summary-card"]')].filter(visible);
-    if (card.length) bodies = [card[0]];
+  // 合并本轮所有片段：每条消息的 message-text，或折叠后的 summary-card 文本。
+  const textParts = [];
+  for (const node of following) {
+    const bodies = [...node.querySelectorAll(SELECTORS.answerBody)].filter(n => visible(n) && !n.parentElement?.closest(SELECTORS.answerBody));
+    if (bodies.length > 1) return null;
+    if (bodies.length === 1) { textParts.push(bodies[0]); continue; }
+    const card = [...node.querySelectorAll('[data-testid="summary-preview"], [data-testid="summary-card"]')].filter(visible);
+    if (card.length) { textParts.push(card[0]); continue; }
+    // 既没有正文也没有卡片：可能还在渲染，等下一轮。
+    return null;
   }
   const images = []; const seen = new Set();
-  for (const image of message.querySelectorAll('img')) {
-    if (!visible(image)) continue;
-    const source = image.currentSrc || image.src;
-    if (seen.has(source) || baseline.imageSources.has(source)) continue;
-    seen.add(source);
-    let src; try { src = answerImageSource(source); } catch { continue; }
-    if (!image.complete) return null;
-    if (!image.naturalWidth || !image.naturalHeight) throw new PageSafetyError('Hark 回复图片尚未正常加载');
-    images.push({ src, width: image.naturalWidth, height: image.naturalHeight });
-    if (images.length > MAX_IMAGES) throw new PageSafetyError('本次回复超过 4 张图片，请在网页查看完整结果');
+  for (const node of following) {
+    for (const image of node.querySelectorAll('img')) {
+      if (!visible(image)) continue;
+      const source = image.currentSrc || image.src;
+      if (seen.has(source) || baseline.imageSources.has(source)) continue;
+      seen.add(source);
+      let src; try { src = answerImageSource(source); } catch { continue; }
+      if (!image.complete) return null;
+      if (!image.naturalWidth || !image.naturalHeight) throw new PageSafetyError('Hark 回复图片尚未正常加载');
+      images.push({ src, width: image.naturalWidth, height: image.naturalHeight });
+      if (images.length > MAX_IMAGES) throw new PageSafetyError('本次回复超过 4 张图片，请在网页查看完整结果');
+    }
   }
-  const text = bodies.length ? markdownText(bodies[0]) : '';
+  const text = textParts.map(part => markdownText(part)).filter(Boolean).join('\n\n');
   return text || images.length ? { message, text, images } : null;
 }
 // 共享的 readAnswerImage 绑定 ChatGPT 的图片域名，这里用 Hark 的来源白名单。
