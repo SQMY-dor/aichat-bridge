@@ -21,7 +21,7 @@ async function setup({ store, request, contextPresent = false, createHost, platf
   let initializing = true;
   const activePlatforms = Object.fromEntries(ASSISTANTS.map(id => [id, id === assistant ? platform : 'qq']));
   const enabled = Object.fromEntries(ASSISTANTS.map(id => [id, id === 'chatgpt' || id === assistant]));
-  const testUrl = ({ chatgpt: url, claude: 'https://claude.ai/chat/claude-fixture-1234', gemini: 'https://gemini.google.com/app/gemini-fixture-1234', qwen:'https://chat.qwen.ai/c/qwen-fixture-1234' })[assistant];
+  const testUrl = ({ chatgpt: url, claude: 'https://claude.ai/chat/claude-fixture-1234', gemini: 'https://gemini.google.com/app/gemini-fixture-1234', qwen:'https://chat.qwen.ai/c/qwen-fixture-1234', hark: 'https://app.hark.com/chat/hark-fixture-1234' })[assistant];
   tab.url = testUrl;
   const hostCreates = [];
   const contextChecks = [];
@@ -161,7 +161,7 @@ test('explicit ChatGPT challenge recovery survives worker/page reload and permit
   assert.equal(x.calls.filter(call => call.path.endsWith('/result')).length, 1);
 });
 test('challenge recovery rejects changed prompts, expired leases, other providers and foreign senders', async () => {
-  for (const assistant of ['chatgpt', 'claude', 'gemini', 'qwen']) {
+  for (const assistant of ASSISTANTS) {
     const x = await setup({ assistant }); await x.send({ type: 'bridge:poll' });
     assert.equal((await x.send({ type: 'bridge:challenge-prepare', jobId: 'job-1', checkpoint: recoveryCheckpoint })).ok, false);
     await x.send({ type: 'bridge:started', jobId: 'job-1' });

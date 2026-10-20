@@ -1,8 +1,18 @@
-export const ASSISTANTS = Object.freeze(['chatgpt', 'claude', 'gemini', 'qwen']);
-export const ASSISTANT_NAMES = Object.freeze({ chatgpt: 'ChatGPT', claude: 'Claude', gemini: 'Gemini', qwen: 'Qwen' });
-export const ASSISTANT_ORIGINS = Object.freeze({ chatgpt: 'https://chatgpt.com', claude: 'https://claude.ai', gemini: 'https://gemini.google.com', qwen: 'https://chat.qwen.ai' });
+export const ASSISTANTS = Object.freeze(['chatgpt', 'claude', 'gemini', 'qwen', 'hark']);
+export const ASSISTANT_NAMES = Object.freeze({ chatgpt: 'ChatGPT', claude: 'Claude', gemini: 'Gemini', qwen: 'Qwen', hark: 'Hark' });
+export const ASSISTANT_ORIGINS = Object.freeze({ chatgpt: 'https://chatgpt.com', claude: 'https://claude.ai', gemini: 'https://gemini.google.com', qwen: 'https://chat.qwen.ai', hark: 'https://app.hark.com' });
+// app.hark.com 的会话路由取自登录页加载的前端 bundle（路由表里含
+// /chat/:messageId、/project/:projectId/:messageId、/room/:roomId），未登录时
+// 服务端对这些路径一律 401 并跳到 /login?redirectTo=…。能被绑定的只有带消息
+// 标识的会话页；入口页、登录页与设置页都在下面的保留名单里，绑定会被明确拒绝。
+export const HARK_RESERVED_PATHS = Object.freeze([
+  '/', '/login', '/waitlist', '/set-password', '/enroll-2fa', '/verify-age', '/verify-card', '/verify-email',
+  '/accept-invite', '/slack-install', '/preview/billing-notice', '/chat', '/projects', '/projects/new',
+  '/rooms', '/settings', '/settings/profile', '/settings/security', '/settings/billing', '/plans',
+  '/profile', '/soul', '/connect', '/docs/realtime',
+]);
 export function assistantId(value) {
-  if (!ASSISTANTS.includes(value)) throw Object.assign(new Error('请选择 ChatGPT、Claude、Gemini 或 Qwen 助手'), { status: 400 });
+  if (!ASSISTANTS.includes(value)) throw Object.assign(new Error('请选择 ChatGPT、Claude、Gemini、Qwen 或 Hark 助手'), { status: 400 });
   return value;
 }
 export function assistantForUrl(value) {
@@ -17,10 +27,12 @@ export function conversationUrl(value, assistant = 'chatgpt') {
     const url = new URL(value);
     if (assistantForUrl(value) !== assistantId(assistant)) return null;
     const path = url.pathname.replace(/\/+$/, '');
-    const pattern = assistant === 'qwen' ? /^\/c\/[A-Za-z0-9_-]{8,}$/
+    const pattern = assistant === 'hark' ? /^\/(?:chat\/[A-Za-z0-9_-]{6,}|project\/[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9_-]{6,}|room\/[A-Za-z0-9_-]{6,})$/
+      : assistant === 'qwen' ? /^\/c\/[A-Za-z0-9_-]{8,}$/
       : assistant === 'gemini' ? /^\/(?:u\/\d+\/)?app\/[A-Za-z0-9_-]{8,}$/
       : assistant === 'claude' ? /^\/chat\/[A-Za-z0-9_-]{8,}$/ : /^\/(?:[^/]+\/)*c\/[A-Za-z0-9_-]{8,}$/;
     if (!pattern.test(path)) return null;
+    if (assistant === 'hark' && HARK_RESERVED_PATHS.includes(path.toLowerCase())) return null;
     return url.origin + path;
   } catch { return null; }
 }

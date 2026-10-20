@@ -7,6 +7,7 @@ const ASSISTANTS = {
   chatgpt: { name: 'ChatGPT', path: '/c/' },
   claude: { name: 'Claude', path: '/chat/' },
   qwen: { name: 'Qwen', path: '/c/<会话 ID>（海外版 chat.qwen.ai）' },
+  hark: { name: 'Hark', path: '/chat/<会话 ID>（Hark Pro · app.hark.com，需先登录）' },
   gemini: { name: 'Gemini', path: '/app/<会话 ID>（多账号也支持 /u/<账号编号>/app/<会话 ID>）' }
 };
 const drafts = new Map();

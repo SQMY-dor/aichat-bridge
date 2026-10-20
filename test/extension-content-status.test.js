@@ -6,6 +6,8 @@ import * as chatgpt from '../extension/dom.js';
 import * as claude from '../extension/claude-dom.js';
 import * as gemini from '../extension/gemini-dom.js';
 import * as qwen from '../extension/qwen-dom.js';
+import * as hark from '../extension/hark-dom.js';
+import { user as harkUser, answer as harkAnswer, finish as harkFinish, url as harkUrl } from './helpers/hark-fixture.js';
 import { composerHTML, user as qwenUser, answer as qwenAnswer, url as qwenUrl } from './helpers/qwen-fixture.js';
 import * as shared from '../extension/shared.js';
 
@@ -15,15 +17,17 @@ const source = (await readFile(new URL('../extension/content.js', import.meta.ur
   .replace("await import(chrome.runtime.getURL('claude-dom.js'))", 'globalThis.__testClaude')
   .replace("await import(chrome.runtime.getURL('gemini-dom.js'))", 'globalThis.__testGemini')
   .replace("await import(chrome.runtime.getURL('qwen-dom.js'))", 'globalThis.__testQwen')
+  .replace("await import(chrome.runtime.getURL('hark-dom.js'))", 'globalThis.__testHark')
   .replace("await import(chrome.runtime.getURL('shared.js'))", 'globalThis.__testShared');
 const fixtures = {
   qwen: '<main><div id="chat-message-container"></div>' + composerHTML + '</main>',
   chatgpt: '<main></main><div data-composer-body><div data-composer-attachments></div><div data-composer-markdown contenteditable="true" role="textbox"></div><button type="submit" aria-label="发送"></button></div>',
   claude: await readFile(new URL('./fixtures/claude-conversation.html', import.meta.url), 'utf8'),
   gemini: await readFile(new URL('./fixtures/gemini-conversation.html', import.meta.url), 'utf8'),
+  hark: '<main><div data-testid="message-list"></div><div data-testid="composer"><div data-testid="composer-attachments"></div><div data-testid="composer-input" contenteditable="true" role="textbox"></div><button data-testid="composer-send" aria-label="发送"></button></div></main>',
 };
-const urls = { qwen: qwenUrl, chatgpt: 'https://chatgpt.com/c/status-recovery-fixture', claude: 'https://claude.ai/chat/status-recovery-fixture', gemini: 'https://gemini.google.com/app/status-recovery-fixture' };
-const adapters = { chatgpt, claude, gemini, qwen };
+const urls = { qwen: qwenUrl, chatgpt: 'https://chatgpt.com/c/status-recovery-fixture', claude: 'https://claude.ai/chat/status-recovery-fixture', gemini: 'https://gemini.google.com/app/status-recovery-fixture', hark: harkUrl };
+const adapters = { chatgpt, claude, gemini, qwen, hark };
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
 async function fixture(assistant, { blocked, rpcFailure = false, pollResponse = {} } = {}) {
@@ -37,7 +41,7 @@ async function fixture(assistant, { blocked, rpcFailure = false, pollResponse = 
   win.Date = class extends Date { static now() { return now; } };
   win.setTimeout = (fn, ms) => schedule(fn, ms); win.clearTimeout = id => timers.delete(id);
   win.setInterval = (fn, ms) => schedule(fn, ms, ms); win.clearInterval = id => timers.delete(id);
-  win.__testQwen = qwen; win.__testShared = shared; win.__testChatGPT = chatgpt; win.__testClaude = claude; win.__testGemini = gemini;
+  win.__testQwen = qwen; win.__testShared = shared; win.__testChatGPT = chatgpt; win.__testClaude = claude; win.__testGemini = gemini; win.__testHark = hark;
   doc.execCommand = (command, _ui, text) => { assert.equal(command, 'insertText'); input.textContent = text; return true; };
   const setBlocked = value => {
     if (value === 'missing') { placeholder = doc.createComment('detached composer'); input.replaceWith(placeholder); }
@@ -48,6 +52,9 @@ async function fixture(assistant, { blocked, rpcFailure = false, pollResponse = 
       } else if (assistant === 'gemini') {
         blocker = doc.createElement('gem-icon-button'); blocker.className = 'send-button stop'; blocker.innerHTML = '<button>Stop</button>';
         doc.querySelector('[data-test-id="send-button-container"]').append(blocker);
+      } else if (assistant === 'hark') {
+        blocker = doc.createElement('button'); blocker.dataset.testid = 'composer-stop'; blocker.setAttribute('aria-label', 'Stop');
+        doc.querySelector('[data-testid="composer"]').append(blocker);
       } else {
         blocker = doc.createElement('button'); blocker.dataset.testid = assistant === 'claude' ? 'chat-input-stop' : 'stop-button';
         doc.body.append(blocker);
@@ -71,6 +78,8 @@ async function fixture(assistant, { blocked, rpcFailure = false, pollResponse = 
       dom.turns(doc, 'user').at(-1).querySelector('p').textContent = text;
     } else if (assistant === 'qwen') {
       qwenUser(doc, text, 'status-user-' + clicks); qwenAnswer(doc, '<p>Final answer</p>', 'status-answer-' + clicks);
+    } else if (assistant === 'hark') {
+      harkUser(doc, text, 'status-user-' + clicks); harkAnswer(doc, '<p>Final answer</p>', 'status-answer-' + clicks);
     } else {
       const row = geminiRow.cloneNode(true); row.id = `status-turn-${clicks}`;
       row.querySelector('.query-text').textContent = text; row.querySelector('.markdown-main-panel').innerHTML = '<p>Final answer</p>';

@@ -19,7 +19,7 @@ const flush = async () => { await new Promise(resolve => setImmediate(resolve));
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 
 async function fixture({ source = productionSource, submittedText, pollGate, startedGate, imagePreparationDelay = 0, assistant = 'chatgpt' } = {}) {
-  const pageUrl = { chatgpt: url, claude: 'https://claude.ai/chat/content-wake-fixture', gemini: 'https://gemini.google.com/app/content-wake-fixture', qwen: 'https://chat.qwen.ai/c/content-wake-fixture' }[assistant];
+  const pageUrl = { chatgpt: url, claude: 'https://claude.ai/chat/content-wake-fixture', gemini: 'https://gemini.google.com/app/content-wake-fixture', qwen: 'https://chat.qwen.ai/c/content-wake-fixture', hark: 'https://app.hark.com/chat/content-wake-fixture' }[assistant];
   const page = new JSDOM('<main></main><div data-composer-body><div data-composer-attachments></div><div data-composer-markdown contenteditable="true" role="textbox"></div><button type="submit" aria-label="发送"></button></div>', { url: pageUrl, runScripts: 'outside-only', pretendToBeVisual: true });
   const win = page.window; const doc = win.document; const input = dom.composer(doc);
   const messages = []; const jobs = []; const listeners = []; const timers = new Map(); const intervalMs = [];
@@ -74,6 +74,7 @@ async function fixture({ source = productionSource, submittedText, pollGate, sta
     .replace("await import(chrome.runtime.getURL('claude-dom.js'))", 'globalThis.__testDom')
     .replace("await import(chrome.runtime.getURL('gemini-dom.js'))", 'globalThis.__testDom')
     .replace("await import(chrome.runtime.getURL('qwen-dom.js'))", 'globalThis.__testDom')
+    .replace("await import(chrome.runtime.getURL('hark-dom.js'))", 'globalThis.__testDom')
     .replace("await import(chrome.runtime.getURL('shared.js'))", 'globalThis.__testShared'));
   await flush();
   return {

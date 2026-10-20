@@ -1,0 +1,1695 @@
+{
+  "tool": "hark-dom-probe",
+  "version": 1,
+  "capturedAt": "2026-10-19T19:26:35.196Z",
+  "note": "真实实测输出（未人工改写数值）。数组已按信噪比截断：buttons 只保留有发送/认证信号的可见控件加少量样本，attributeInventory 每类最多 30 条。用 scripts/hark-dom-probe.js 可原样重跑。",
+  "environment": {
+    "browser": "Chrome/155.0.8059.39",
+    "protocol": "1.3",
+    "launch": "Xvfb :77 + /usr/bin/chromium --remote-debugging-port=9222 --remote-allow-origins=* --user-data-dir=/tmp/hark-profile --no-sandbox --disable-gpu --window-size=1440,900",
+    "loggedIn": false,
+    "loginAttempted": false,
+    "node": "v24.15.0"
+  },
+  "runs": [
+    {
+      "page": "marketing entry page",
+      "command": "node scripts/hark-dom-probe.js --port 9222 --url-prefix hark.com --out ... --html ... --timeout 60000 --settle 12000",
+      "elapsedMs": 27686,
+      "target": {
+        "id": "5349CA0DB2C2BA0A6FC6EF8933165F00",
+        "title": "Hark",
+        "url": "https://hark.com/"
+      },
+      "result": {
+        "ok": true,
+        "probedAt": "2026-10-19T19:26:24.177Z",
+        "meta": {
+          "url": "https://hark.com/",
+          "origin": "https://hark.com",
+          "title": "Hark",
+          "lang": "en",
+          "readyState": "complete",
+          "charset": "UTF-8",
+          "contentType": "text/html",
+          "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+          "viewport": {
+            "width": 1439,
+            "height": 756,
+            "devicePixelRatio": 1
+          },
+          "settleWaitedMs": 2600,
+          "bodyTextSample": "This wallpaper needs WebGL, which isn't available in your browser. Learn more hark pro A new kind of system for getting things done. Whatever you need, let Hark handle it. Continue with Google Continue with Apple or Continue By continuing, you agree to our Terms of Service and acknowledge that your data will be processed in accordance with our Privacy Policy. Book me a trip to Mexico City next weekend. Find the cheapest flights and a nice hotel in Polanco. Make everyday easier Chat with Hark in a single thread for whatever you need. Book a table for that birthday dinner, submit expenses from e..."
+        },
+        "framework": {
+          "isNextJs": true,
+          "nextDataScript": false,
+          "nextAppRouter": true,
+          "nextStaticAssets": 24,
+          "reactRoot": true,
+          "bodyClassList": [],
+          "metaTags": {
+            "description": "At Hark, we are building the most advanced personal intelligence in the world.",
+            "og:title": "Hark",
+            "og:description": "At Hark, we are building the most advanced personal intelligence in the world.",
+            "twitter:title": "Hark",
+            "twitter:description": "At Hark, we are building the most advanced personal intelligence in the world."
+          },
+          "scriptHosts": [
+            "hark.com",
+            "static.cloudflareinsights.com",
+            "www.googletagmanager.com"
+          ]
+        },
+        "shadow": {
+          "hostCount": 1,
+          "hosts": [
+            {
+              "host": "body > next-route-announcer",
+              "depth": 1,
+              "mode": "open"
+            }
+          ],
+          "rootsScanned": 2
+        },
+        "iframes": [
+          {
+            "src": "https://www.youtube.com/embed/0PSV7e1KawA?si=vauKyePVyJx2ybpf&autoplay=1&mute=1&playsinline=1",
+            "name": null,
+            "title": "YouTube video player",
+            "visible": true,
+            "rect": {
+              "x": 130,
+              "y": 1466,
+              "w": 1164,
+              "h": 655
+            },
+            "sameOrigin": false,
+            "composerInside": null
+          },
+          {
+            "src": "",
+            "name": null,
+            "title": null,
+            "visible": false,
+            "rect": null,
+            "sameOrigin": true,
+            "composerInside": false
+          }
+        ],
+        "loginSignals": {
+          "passwordInputs": [],
+          "authButtons": [
+            {
+              "label": "Continue with Google",
+              "tag": "button",
+              "ariaLabel": null,
+              "dataTestId": null,
+              "cssPath": "body > main > div > div:nth-child(1) > div:nth-child(2) > div.app-module-scss-module__RWs2aW__content:nth-child(1) > div.app-module-scss-module__RWs2aW__main:nth-child(2) > div > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+              "rect": {
+                "x": 802,
+                "y": 315,
+                "w": 380,
+                "h": 48
+              }
+            },
+            {
+              "label": "Continue with Apple",
+              "tag": "button",
+              "ariaLabel": null,
+              "dataTestId": null,
+              "cssPath": "body > main > div > div:nth-child(1) > div:nth-child(2) > div.app-module-scss-module__RWs2aW__content:nth-child(1) > div.app-module-scss-module__RWs2aW__main:nth-child(2) > div > div:nth-child(2) > div:nth-child(1) > button:nth-child(2)",
+              "rect": {
+                "x": 802,
+                "y": 375,
+                "w": 380,
+                "h": 48
+              }
+            },
+            {
+              "label": "Continue with Google",
+              "tag": "button",
+              "ariaLabel": null,
+              "dataTestId": null,
+              "cssPath": "body > main > div > div:nth-child(11) > div:nth-child(2) > div:nth-child(2) > div.sign-up-module-scss-module__g8z0Da__form:nth-child(2) > div > div > div:nth-child(1) > button:nth-child(1)",
+              "rect": {
+                "x": 557,
+                "y": 7405,
+                "w": 310,
+                "h": 44
+              }
+            },
+            {
+              "label": "Continue with Apple",
+              "tag": "button",
+              "ariaLabel": null,
+              "dataTestId": null,
+              "cssPath": "body > main > div > div:nth-child(11) > div:nth-child(2) > div:nth-child(2) > div.sign-up-module-scss-module__g8z0Da__form:nth-child(2) > div > div > div:nth-child(1) > button:nth-child(2)",
+              "rect": {
+                "x": 557,
+                "y": 7461,
+                "w": 310,
+                "h": 44
+              }
+            }
+          ],
+          "authLinks": [],
+          "oauthMarkers": [],
+          "dialogs": []
+        },
+        "composers": [
+          {
+            "tag": "input",
+            "inputType": "text",
+            "role": null,
+            "contenteditable": null,
+            "id": null,
+            "name": "email",
+            "ariaLabel": "Email address or phone number",
+            "placeholder": "Email address or phone number",
+            "dataTestId": null,
+            "autocomplete": "username",
+            "classList": [
+              "auth-form-module-scss-module__8oHL4W__emailInput"
+            ],
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 802,
+              "y": 482,
+              "w": 380,
+              "h": 48
+            },
+            "disabled": false,
+            "readOnly": false,
+            "likelyAuthField": true,
+            "cssPath": "body > main > div > div:nth-child(1) > div:nth-child(2) > div.app-module-scss-module__RWs2aW__content:nth-child(1) > div.app-module-scss-module__RWs2aW__main:nth-child(2) > div > div:nth-child(2) > form > div > input[aria-label=\"Email address or phone number\"]",
+            "parentChain": [
+              "div",
+              "form",
+              "div",
+              "div"
+            ],
+            "closestForm": "body > main > div > div:nth-child(1) > div:nth-child(2) > div.app-module-scss-module__RWs2aW__content:nth-child(1) > div.app-module-scss-module__RWs2aW__main:nth-child(2) > div > div:nth-child(2) > form"
+          },
+          {
+            "tag": "input",
+            "inputType": "text",
+            "role": null,
+            "contenteditable": null,
+            "id": null,
+            "name": "email",
+            "ariaLabel": "Email address or phone number",
+            "placeholder": "Email address or phone number",
+            "dataTestId": null,
+            "autocomplete": "username",
+            "classList": [
+              "auth-form-module-scss-module__8oHL4W__emailInput"
+            ],
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 557,
+              "y": 7585,
+              "w": 310,
+              "h": 44
+            },
+            "disabled": false,
+            "readOnly": false,
+            "likelyAuthField": true,
+            "cssPath": "body > main > div > div:nth-child(11) > div:nth-child(2) > div:nth-child(2) > div.sign-up-module-scss-module__g8z0Da__form:nth-child(2) > div > div > form > input[aria-label=\"Email address or phone number\"]:nth-child(2)",
+            "parentChain": [
+              "form",
+              "div",
+              "div",
+              "div.sign-up-module-scss-module__g8z0Da__form"
+            ],
+            "closestForm": "body > main > div > div:nth-child(11) > div:nth-child(2) > div:nth-child(2) > div.sign-up-module-scss-module__g8z0Da__form:nth-child(2) > div > div > form"
+          }
+        ],
+        "composerScopes": [
+          {
+            "how": "closest(form)",
+            "cssPath": "body > main > div > div:nth-child(1) > div:nth-child(2) > div.app-module-scss-module__RWs2aW__content:nth-child(1) > div.app-module-scss-module__RWs2aW__main:nth-child(2) > div > div:nth-child(2) > form",
+            "tag": "form",
+            "classList": [
+              "auth-form-module-scss-module__8oHL4W__emailForm"
+            ],
+            "dataTestId": null,
+            "role": null,
+            "buttonCount": 1,
+            "composerCount": 2,
+            "rect": {
+              "x": 802,
+              "y": 482,
+              "w": 380,
+              "h": 116
+            }
+          },
+          {
+            "how": "closest(form)",
+            "cssPath": "body > main > div > div:nth-child(11) > div:nth-child(2) > div:nth-child(2) > div.sign-up-module-scss-module__g8z0Da__form:nth-child(2) > div > div > form",
+            "tag": "form",
+            "classList": [
+              "auth-form-module-scss-module__8oHL4W__emailForm"
+            ],
+            "dataTestId": null,
+            "role": null,
+            "buttonCount": 1,
+            "composerCount": 2,
+            "rect": {
+              "x": 557,
+              "y": 7585,
+              "w": 310,
+              "h": 100
+            }
+          }
+        ],
+        "sendButtonCandidates": [
+          {
+            "tag": "button",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": "submit",
+            "text": "Continue",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 802,
+              "y": 550,
+              "w": 380,
+              "h": 48
+            },
+            "disabled": true,
+            "classList": [
+              "auth-form-module-scss-module__8oHL4W__button",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": true,
+            "composerScope": "body > main > div > div:nth-child(1) > div:nth-child(2) > div.app-module-scss-module__RWs2aW__content:nth-child(1) > div.app-module-scss-module__RWs2aW__main:nth-child(2) > div > div:nth-child(2) > form",
+            "shadowHost": null,
+            "cssPath": "body > main > div > div:nth-child(1) > div:nth-child(2) > div.app-module-scss-module__RWs2aW__content:nth-child(1) > div.app-module-scss-module__RWs2aW__main:nth-child(2) > div > div:nth-child(2) > form > button",
+            "sendHints": [
+              "type-submit"
+            ]
+          },
+          {
+            "tag": "button",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": "submit",
+            "text": "Continue",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 557,
+              "y": 7641,
+              "w": 310,
+              "h": 44
+            },
+            "disabled": false,
+            "classList": [
+              "auth-form-module-scss-module__8oHL4W__button",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": true,
+            "composerScope": "body > main > div > div:nth-child(11) > div:nth-child(2) > div:nth-child(2) > div.sign-up-module-scss-module__g8z0Da__form:nth-child(2) > div > div > form",
+            "shadowHost": null,
+            "cssPath": "body > main > div > div:nth-child(11) > div:nth-child(2) > div:nth-child(2) > div.sign-up-module-scss-module__g8z0Da__form:nth-child(2) > div > div > form > button",
+            "sendHints": [
+              "type-submit"
+            ]
+          }
+        ],
+        "buttons": [
+          {
+            "tag": "button",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": "button",
+            "text": "Continue with Google",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 802,
+              "y": 315,
+              "w": 380,
+              "h": 48
+            },
+            "disabled": false,
+            "classList": [
+              "auth-form-module-scss-module__8oHL4W__button",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": true,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > main > div > div:nth-child(1) > div:nth-child(2) > div.app-module-scss-module__RWs2aW__content:nth-child(1) > div.app-module-scss-module__RWs2aW__main:nth-child(2) > div > div:nth-child(2) > div:nth-child(1) > button:nth-child(1)",
+            "sendHints": []
+          },
+          {
+            "tag": "button",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": "button",
+            "text": "Continue with Apple",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 802,
+              "y": 375,
+              "w": 380,
+              "h": 48
+            },
+            "disabled": false,
+            "classList": [
+              "auth-form-module-scss-module__8oHL4W__button",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": true,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > main > div > div:nth-child(1) > div:nth-child(2) > div.app-module-scss-module__RWs2aW__content:nth-child(1) > div.app-module-scss-module__RWs2aW__main:nth-child(2) > div > div:nth-child(2) > div:nth-child(1) > button:nth-child(2)",
+            "sendHints": []
+          },
+          {
+            "tag": "button",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": "submit",
+            "text": "Continue",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 802,
+              "y": 550,
+              "w": 380,
+              "h": 48
+            },
+            "disabled": true,
+            "classList": [
+              "auth-form-module-scss-module__8oHL4W__button",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": true,
+            "composerScope": "body > main > div > div:nth-child(1) > div:nth-child(2) > div.app-module-scss-module__RWs2aW__content:nth-child(1) > div.app-module-scss-module__RWs2aW__main:nth-child(2) > div > div:nth-child(2) > form",
+            "shadowHost": null,
+            "cssPath": "body > main > div > div:nth-child(1) > div:nth-child(2) > div.app-module-scss-module__RWs2aW__content:nth-child(1) > div.app-module-scss-module__RWs2aW__main:nth-child(2) > div > div:nth-child(2) > form > button",
+            "sendHints": [
+              "type-submit"
+            ]
+          },
+          {
+            "tag": "button",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": "button",
+            "text": "Continue with Google",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 557,
+              "y": 7405,
+              "w": 310,
+              "h": 44
+            },
+            "disabled": false,
+            "classList": [
+              "auth-form-module-scss-module__8oHL4W__button",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": true,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > main > div > div:nth-child(11) > div:nth-child(2) > div:nth-child(2) > div.sign-up-module-scss-module__g8z0Da__form:nth-child(2) > div > div > div:nth-child(1) > button:nth-child(1)",
+            "sendHints": []
+          },
+          {
+            "tag": "button",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": "button",
+            "text": "Continue with Apple",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 557,
+              "y": 7461,
+              "w": 310,
+              "h": 44
+            },
+            "disabled": false,
+            "classList": [
+              "auth-form-module-scss-module__8oHL4W__button",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": true,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > main > div > div:nth-child(11) > div:nth-child(2) > div:nth-child(2) > div.sign-up-module-scss-module__g8z0Da__form:nth-child(2) > div > div > div:nth-child(1) > button:nth-child(2)",
+            "sendHints": []
+          },
+          {
+            "tag": "button",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": "submit",
+            "text": "Continue",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 557,
+              "y": 7641,
+              "w": 310,
+              "h": 44
+            },
+            "disabled": false,
+            "classList": [
+              "auth-form-module-scss-module__8oHL4W__button",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": true,
+            "composerScope": "body > main > div > div:nth-child(11) > div:nth-child(2) > div:nth-child(2) > div.sign-up-module-scss-module__g8z0Da__form:nth-child(2) > div > div > form",
+            "shadowHost": null,
+            "cssPath": "body > main > div > div:nth-child(11) > div:nth-child(2) > div:nth-child(2) > div.sign-up-module-scss-module__g8z0Da__form:nth-child(2) > div > div > form > button",
+            "sendHints": [
+              "type-submit"
+            ]
+          },
+          {
+            "tag": "button",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": "button",
+            "text": "Learn more",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 40,
+              "y": 668,
+              "w": 121,
+              "h": 48
+            },
+            "disabled": false,
+            "classList": [
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > main > div > div:nth-child(1) > div:nth-child(2) > div.app-module-scss-module__RWs2aW__content:nth-child(1) > div:nth-child(1) > div:nth-child(3) > button",
+            "sendHints": []
+          },
+          {
+            "tag": "a",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": null,
+            "text": "Security at Hark",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 634,
+              "y": 6138,
+              "w": 156,
+              "h": 44
+            },
+            "disabled": false,
+            "classList": [
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > main > div > div:nth-child(9) > div > div > div.prose-module-scss-module__s_qWJW__links > a[role=\"button\"]",
+            "sendHints": []
+          },
+          {
+            "tag": "a",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": null,
+            "text": "Our Manifesto",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 640,
+              "y": 7029,
+              "w": 144,
+              "h": 44
+            },
+            "disabled": false,
+            "classList": [
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > main > div > div:nth-child(10) > div > div > div.prose-module-scss-module__s_qWJW__links > a[role=\"button\"]",
+            "sendHints": []
+          },
+          {
+            "tag": "a",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": null,
+            "text": "Manifesto",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 1000,
+              "y": 7977,
+              "w": 68,
+              "h": 14
+            },
+            "disabled": false,
+            "classList": [
+              "footer-module-scss-module__yUv0PG__link",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > footer > div > div.footer-module-scss-module__yUv0PG__top:nth-child(1) > div > div:nth-child(1) > a[role=\"button\"]:nth-child(2)",
+            "sendHints": []
+          },
+          {
+            "tag": "a",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": null,
+            "text": "Careers",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 1000,
+              "y": 7997,
+              "w": 53,
+              "h": 14
+            },
+            "disabled": false,
+            "classList": [
+              "footer-module-scss-module__yUv0PG__link",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > footer > div > div.footer-module-scss-module__yUv0PG__top:nth-child(1) > div > div:nth-child(1) > a[role=\"button\"]:nth-child(3)",
+            "sendHints": []
+          },
+          {
+            "tag": "a",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": null,
+            "text": "News",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 1000,
+              "y": 8017,
+              "w": 38,
+              "h": 14
+            },
+            "disabled": false,
+            "classList": [
+              "footer-module-scss-module__yUv0PG__link",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > footer > div > div.footer-module-scss-module__yUv0PG__top:nth-child(1) > div > div:nth-child(1) > a[role=\"button\"]:nth-child(4)",
+            "sendHints": []
+          },
+          {
+            "tag": "a",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": null,
+            "text": "Security",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 1000,
+              "y": 8037,
+              "w": 55,
+              "h": 14
+            },
+            "disabled": false,
+            "classList": [
+              "footer-module-scss-module__yUv0PG__link",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > footer > div > div.footer-module-scss-module__yUv0PG__top:nth-child(1) > div > div:nth-child(1) > a[role=\"button\"]:nth-child(5)",
+            "sendHints": []
+          },
+          {
+            "tag": "a",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": null,
+            "text": "Pricing",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 1000,
+              "y": 8057,
+              "w": 46,
+              "h": 14
+            },
+            "disabled": false,
+            "classList": [
+              "footer-module-scss-module__yUv0PG__link",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > footer > div > div.footer-module-scss-module__yUv0PG__top:nth-child(1) > div > div:nth-child(1) > a[role=\"button\"]:nth-child(6)",
+            "sendHints": []
+          },
+          {
+            "tag": "a",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": null,
+            "text": "Using Hark",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 1145,
+              "y": 7977,
+              "w": 73,
+              "h": 14
+            },
+            "disabled": false,
+            "classList": [
+              "footer-module-scss-module__yUv0PG__link",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > footer > div > div.footer-module-scss-module__yUv0PG__top:nth-child(1) > div > div:nth-child(2) > a[role=\"button\"]:nth-child(2)",
+            "sendHints": []
+          },
+          {
+            "tag": "a",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": null,
+            "text": "Help Center",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 1145,
+              "y": 7997,
+              "w": 80,
+              "h": 14
+            },
+            "disabled": false,
+            "classList": [
+              "footer-module-scss-module__yUv0PG__link",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > footer > div > div.footer-module-scss-module__yUv0PG__top:nth-child(1) > div > div:nth-child(2) > a[role=\"button\"]:nth-child(3)",
+            "sendHints": []
+          },
+          {
+            "tag": "a",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": null,
+            "text": "Terms of Service",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 1290,
+              "y": 7977,
+              "w": 110,
+              "h": 14
+            },
+            "disabled": false,
+            "classList": [
+              "footer-module-scss-module__yUv0PG__link",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > footer > div > div.footer-module-scss-module__yUv0PG__top:nth-child(1) > div > div:nth-child(3) > a[role=\"button\"]:nth-child(2)",
+            "sendHints": []
+          },
+          {
+            "tag": "a",
+            "ariaLabel": "",
+            "dataTestId": "",
+            "title": null,
+            "type": null,
+            "text": "Privacy Policy",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 1290,
+              "y": 7997,
+              "w": 92,
+              "h": 14
+            },
+            "disabled": false,
+            "classList": [
+              "footer-module-scss-module__yUv0PG__link",
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > footer > div > div.footer-module-scss-module__yUv0PG__top:nth-child(1) > div > div:nth-child(3) > a[role=\"button\"]:nth-child(3)",
+            "sendHints": []
+          }
+        ],
+        "messageListHints": [],
+        "repeatedGroups": [
+          {
+            "signature": "div",
+            "count": 11,
+            "score": 5.28,
+            "parentPath": "body > main > div",
+            "parentTag": "div",
+            "parentClass": "sections-module-scss-module__fUt1Xq__container",
+            "parentRole": null,
+            "parentDataTestId": null,
+            "depth": 0,
+            "shadowHost": null,
+            "parentVisible": true,
+            "textBearingChildren": 10,
+            "hasMessageAttributes": false,
+            "messageAttributeCount": 0,
+            "conversationNamedCount": 0,
+            "roleVariety": [
+              "section-module-scss-module__Kf2ava__container"
+            ],
+            "visibleChildren": 11,
+            "sampleTexts": [
+              "Learn morehark proA new kind of system for getting things done. Whatever you need, let Hark handle it.Continue with Goog...",
+              "Book me a trip to Mexico City next weekend. Find the cheapest flights and a nice hotel in Polanco.I’m really craving som...",
+              ""
+            ]
+          },
+          {
+            "signature": "span.portable-text-module-scss-module__2yjBQq__basicBlock",
+            "count": 3,
+            "score": 5.15,
+            "parentPath": "body > main > div > div:nth-child(4) > div > div > div:nth-child(1) > div.feature-module-scss-module__hiXiNW__main > span.feature-module-scss-module__hiXiNW__text",
+            "parentTag": "span",
+            "parentClass": "feature-module-scss-module__hiXiNW__text",
+            "parentRole": null,
+            "parentDataTestId": null,
+            "depth": 0,
+            "shadowHost": null,
+            "parentVisible": true,
+            "textBearingChildren": 3,
+            "hasMessageAttributes": false,
+            "messageAttributeCount": 0,
+            "conversationNamedCount": 0,
+            "roleVariety": [],
+            "visibleChildren": 3,
+            "sampleTexts": [
+              "Chat with Hark in a single thread for whatever you need. Book a table for that birthday dinner, submit expenses from ema...",
+              "Keep bigger undertakings like job searches or trip planning organized with Projects.",
+              "All from the Hark Pro app on browser, iOS, and Android"
+            ]
+          },
+          {
+            "signature": "div.footer-module-scss-module__yUv0PG__linkGroup",
+            "count": 3,
+            "score": 5.15,
+            "parentPath": "body > footer > div > div.footer-module-scss-module__yUv0PG__top:nth-child(1) > div",
+            "parentTag": "div",
+            "parentClass": "footer-module-scss-module__yUv0PG__linkGroups",
+            "parentRole": null,
+            "parentDataTestId": null,
+            "depth": 0,
+            "shadowHost": null,
+            "parentVisible": true,
+            "textBearingChildren": 3,
+            "hasMessageAttributes": false,
+            "messageAttributeCount": 0,
+            "conversationNamedCount": 0,
+            "roleVariety": [],
+            "visibleChildren": 3,
+            "sampleTexts": [
+              "CompanyManifestoCareersNewsSecurityPricing",
+              "ResourcesUsing HarkHelp Center",
+              "LegalTerms of ServicePrivacy PolicyOther Policies"
+            ]
+          },
+          {
+            "signature": "a[role=button].footer-module-scss-module__yUv0PG__link",
+            "count": 3,
+            "score": 5.15,
+            "parentPath": "body > footer > div > div.footer-module-scss-module__yUv0PG__top:nth-child(1) > div > div:nth-child(3)",
+            "parentTag": "div",
+            "parentClass": "footer-module-scss-module__yUv0PG__linkGroup",
+            "parentRole": null,
+            "parentDataTestId": null,
+            "depth": 0,
+            "shadowHost": null,
+            "parentVisible": true,
+            "textBearingChildren": 3,
+            "hasMessageAttributes": false,
+            "messageAttributeCount": 0,
+            "conversationNamedCount": 0,
+            "roleVariety": [
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "visibleChildren": 3,
+            "sampleTexts": [
+              "Terms of Service",
+              "Privacy Policy",
+              "Other Policies"
+            ]
+          },
+          {
+            "signature": "div.feature-video-carousel-module-scss-module__Y8b1xG__promptPosition",
+            "count": 10,
+            "score": 3.5,
+            "parentPath": "body > main > div > div:nth-child(2) > section[aria-label=\"What Hark can do\"] > div > div:nth-child(2)",
+            "parentTag": "div",
+            "parentClass": "feature-video-carousel-module-scss-module__Y8b1xG__prompts",
+            "parentRole": null,
+            "parentDataTestId": null,
+            "depth": 0,
+            "shadowHost": null,
+            "parentVisible": false,
+            "textBearingChildren": 10,
+            "hasMessageAttributes": false,
+            "messageAttributeCount": 0,
+            "conversationNamedCount": 0,
+            "roleVariety": [],
+            "visibleChildren": 0,
+            "sampleTexts": [
+              "Book me a trip to Mexico City next weekend. Find the cheapest flights and a nice hotel in Polanco.",
+              "I’m really craving some pizza. Can you order me a Margherita from my usual place?",
+              "I’ve been putting off home insurance quotes. Find me competitive quotes with equivalent coverage, show me a comparison, ..."
+            ]
+          },
+          {
+            "signature": "a[role=button].footer-module-scss-module__yUv0PG__link",
+            "count": 5,
+            "score": 2.25,
+            "parentPath": "body > footer > div > div.footer-module-scss-module__yUv0PG__top:nth-child(1) > div > div:nth-child(1)",
+            "parentTag": "div",
+            "parentClass": "footer-module-scss-module__yUv0PG__linkGroup",
+            "parentRole": null,
+            "parentDataTestId": null,
+            "depth": 0,
+            "shadowHost": null,
+            "parentVisible": true,
+            "textBearingChildren": 5,
+            "hasMessageAttributes": false,
+            "messageAttributeCount": 0,
+            "conversationNamedCount": 0,
+            "roleVariety": [
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "visibleChildren": 5,
+            "sampleTexts": [
+              "Manifesto",
+              "Careers",
+              "News"
+            ]
+          },
+          {
+            "signature": "a[role=button]",
+            "count": 3,
+            "score": 2.15,
+            "parentPath": "body > footer > div > div:nth-child(2) > div:nth-child(2) > div",
+            "parentTag": "div",
+            "parentClass": "footer-module-scss-module__yUv0PG__socialLinks",
+            "parentRole": null,
+            "parentDataTestId": null,
+            "depth": 0,
+            "shadowHost": null,
+            "parentVisible": true,
+            "textBearingChildren": 3,
+            "hasMessageAttributes": false,
+            "messageAttributeCount": 0,
+            "conversationNamedCount": 0,
+            "roleVariety": [
+              "button-module-scss-module__4QgQTW__container"
+            ],
+            "visibleChildren": 3,
+            "sampleTexts": [
+              "Instagram",
+              "X",
+              "LinkedIn"
+            ]
+          },
+          {
+            "signature": "div[role=group].feature-video-carousel-module-scss-module__Y8b1xG__card",
+            "count": 10,
+            "score": 1.9,
+            "parentPath": "body > main > div > div:nth-child(2) > section[aria-label=\"What Hark can do\"] > div > div[aria-label=\"Feature slides. Use the left and right arrow keys to browse.\"]:nth-child(1)",
+            "parentTag": "div",
+            "parentClass": "feature-video-carousel-module-scss-module__Y8b1xG__surface",
+            "parentRole": "group",
+            "parentDataTestId": null,
+            "depth": 0,
+            "shadowHost": null,
+            "parentVisible": true,
+            "textBearingChildren": 0,
+            "hasMessageAttributes": false,
+            "messageAttributeCount": 0,
+            "conversationNamedCount": 0,
+            "roleVariety": [],
+            "visibleChildren": 7,
+            "sampleTexts": [
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "signature": "path",
+            "count": 4,
+            "score": 0.2,
+            "parentPath": "body > main > div > div:nth-child(1) > div:nth-child(2) > div.app-module-scss-module__RWs2aW__content:nth-child(1) > div.app-module-scss-module__RWs2aW__main:nth-child(2) > div > div:nth-child(2) > div:nth-child(1) > button:nth-child(1) > svg",
+            "parentTag": "svg",
+            "parentClass": "",
+            "parentRole": null,
+            "parentDataTestId": null,
+            "depth": 0,
+            "shadowHost": null,
+            "parentVisible": false,
+            "textBearingChildren": 0,
+            "hasMessageAttributes": false,
+            "messageAttributeCount": 0,
+            "conversationNamedCount": 0,
+            "roleVariety": [],
+            "visibleChildren": 0,
+            "sampleTexts": [
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "signature": "path",
+            "count": 4,
+            "score": 0.2,
+            "parentPath": "body > main > div > div:nth-child(11) > div:nth-child(2) > div:nth-child(2) > div.sign-up-module-scss-module__g8z0Da__form:nth-child(2) > div > div > div:nth-child(1) > button:nth-child(1) > svg",
+            "parentTag": "svg",
+            "parentClass": "",
+            "parentRole": null,
+            "parentDataTestId": null,
+            "depth": 0,
+            "shadowHost": null,
+            "parentVisible": false,
+            "textBearingChildren": 0,
+            "hasMessageAttributes": false,
+            "messageAttributeCount": 0,
+            "conversationNamedCount": 0,
+            "roleVariety": [],
+            "visibleChildren": 0,
+            "sampleTexts": [
+              "",
+              "",
+              ""
+            ]
+          },
+          {
+            "signature": "path",
+            "count": 4,
+            "score": 0.2,
+            "parentPath": "body > footer > div > div:nth-child(2) > div:nth-child(1) > a[role=\"button\"]:nth-child(2) > svg > g",
+            "parentTag": "g",
+            "parentClass": "",
+            "parentRole": null,
+            "parentDataTestId": null,
+            "depth": 0,
+            "shadowHost": null,
+            "parentVisible": false,
+            "textBearingChildren": 0,
+            "hasMessageAttributes": false,
+            "messageAttributeCount": 0,
+            "conversationNamedCount": 0,
+            "roleVariety": [],
+            "visibleChildren": 0,
+            "sampleTexts": [
+              "",
+              "",
+              ""
+            ]
+          }
+        ],
+        "attributeInventory": {
+          "data-state": [
+            {
+              "where": "div",
+              "value": "loaded",
+              "count": 1
+            }
+          ],
+          "aria-label": [
+            {
+              "where": "button",
+              "value": "Dismiss app download banner",
+              "count": 2
+            },
+            {
+              "where": "input",
+              "value": "Email address or phone number",
+              "count": 2
+            },
+            {
+              "where": "a",
+              "value": "Sign Up",
+              "count": 1
+            },
+            {
+              "where": "section",
+              "value": "What Hark can do",
+              "count": 1
+            },
+            {
+              "where": "div",
+              "value": "Feature slides. Use the left and right arrow keys to browse.",
+              "count": 1
+            },
+            {
+              "where": "div",
+              "value": "4 of 10. Can you find me a dentist who takes my insurance, and book a checkup?",
+              "count": 1
+            },
+            {
+              "where": "div",
+              "value": "5 of 10. I’m interested in a nice dinner for 2 in my neighborhood this Friday.",
+              "count": 1
+            },
+            {
+              "where": "div",
+              "value": "6 of 10. Help me manage and sort my email.",
+              "count": 1
+            },
+            {
+              "where": "div",
+              "value": "7 of 10. Audit what I’m spending the most on and help me save some money.",
+              "count": 1
+            },
+            {
+              "where": "div",
+              "value": "9 of 10. Find me three things you can help me with now.",
+              "count": 1
+            },
+            {
+              "where": "div",
+              "value": "10 of 10. Could you find me a spot for my annual physical?",
+              "count": 1
+            },
+            {
+              "where": "div",
+              "value": "Make everyday easier",
+              "count": 1
+            },
+            {
+              "where": "div",
+              "value": "Consider it handled\nby Hark Handoff",
+              "count": 1
+            },
+            {
+              "where": "div",
+              "value": "Rest assured it's\nSecured by hark",
+              "count": 1
+            },
+            {
+              "where": "div",
+              "value": "Tap it off your list",
+              "count": 1
+            },
+            {
+              "where": "div",
+              "value": "Thanks, it’s custom",
+              "count": 1
+            },
+            {
+              "where": "a",
+              "value": "Instagram",
+              "count": 1
+            },
+            {
+              "where": "a",
+              "value": "X",
+              "count": 1
+            },
+            {
+              "where": "a",
+              "value": "LinkedIn",
+              "count": 1
+            }
+          ],
+          "placeholder": [
+            {
+              "where": "input",
+              "value": "Email address or phone number",
+              "count": 2
+            }
+          ]
+        },
+        "suggested": {
+          "composer": [
+            "body > main > div > div:nth-child(1) > div:nth-child(2) > div.app-module-scss-module__RWs2aW__content:nth-child(1) > div.app-module-scss-module__RWs2aW__main:nth-child(2) > div > div:nth-child(2) > form > div > input[aria-label=\"Email address or phone number\"]",
+            "input[aria-label=\"Email address or phone number\"]",
+            "input[placeholder=\"Email address or phone number\"]",
+            "body > main > div > div:nth-child(11) > div:nth-child(2) > div:nth-child(2) > div.sign-up-module-scss-module__g8z0Da__form:nth-child(2) > div > div > form > input[aria-label=\"Email address or phone number\"]:nth-child(2)",
+            "input[aria-label=\"Email address or phone number\"]",
+            "input[placeholder=\"Email address or phone number\"]"
+          ],
+          "composerScope": [
+            "body > main > div > div:nth-child(1) > div:nth-child(2) > div.app-module-scss-module__RWs2aW__content:nth-child(1) > div.app-module-scss-module__RWs2aW__main:nth-child(2) > div > div:nth-child(2) > form",
+            "body > main > div > div:nth-child(11) > div:nth-child(2) > div:nth-child(2) > div.sign-up-module-scss-module__g8z0Da__form:nth-child(2) > div > div > form"
+          ],
+          "sendButton": [
+            "body > main > div > div:nth-child(1) > div:nth-child(2) > div.app-module-scss-module__RWs2aW__content:nth-child(1) > div.app-module-scss-module__RWs2aW__main:nth-child(2) > div > div:nth-child(2) > form > button",
+            "body > main > div > div:nth-child(11) > div:nth-child(2) > div:nth-child(2) > div.sign-up-module-scss-module__g8z0Da__form:nth-child(2) > div > div > form > button"
+          ],
+          "messageList": [
+            "body > main > div",
+            "body > main > div > div:nth-child(4) > div > div > div:nth-child(1) > div.feature-module-scss-module__hiXiNW__main > span.feature-module-scss-module__hiXiNW__text",
+            "body > footer > div > div.footer-module-scss-module__yUv0PG__top:nth-child(1) > div",
+            "body > footer > div > div.footer-module-scss-module__yUv0PG__top:nth-child(1) > div > div:nth-child(3)",
+            "body > main > div > div:nth-child(2) > section[aria-label=\"What Hark can do\"] > div > div:nth-child(2)"
+          ],
+          "messageRow": [
+            "div",
+            "span.portable-text-module-scss-module__2yjBQq__basicBlock",
+            "div.footer-module-scss-module__yUv0PG__linkGroup",
+            "a[role=button].footer-module-scss-module__yUv0PG__link",
+            "div.feature-video-carousel-module-scss-module__Y8b1xG__promptPosition"
+          ]
+        },
+        "notes": [
+          "只有登录/邮箱类输入框，没有对话输入框：当前是入口页（未登录），对话 composer 需要登录后标定",
+          "页面是 Next.js（App Router / RSC），组件类名可能是构建哈希，选择器应优先用 role/aria-label/data-testid"
+        ],
+        "warnings": [
+          "页面存在 1 个跨域 iframe：若输入区位于其中，扩展无法直接注入，必须换宿主页注入或 API 方案",
+          "页面存在 1 个 open shadow root：扩展的 querySelector 需要按 shadow 边界分别查询"
+        ],
+        "counts": {
+          "elements": 454,
+          "composers": 4,
+          "visibleComposers": 2,
+          "chatComposers": 0,
+          "buttons": 30,
+          "visibleButtons": 24,
+          "repeatedGroups": 11
+        }
+      }
+    },
+    {
+      "page": "app login page",
+      "command": "node scripts/hark-dom-probe.js --port 9222 --url-prefix app.hark.com --out ... --html ... --timeout 60000 --settle 10000",
+      "elapsedMs": 10954,
+      "target": {
+        "id": "873CAD2ABCC936EA2FE64DD9B0D1CB51",
+        "title": "Hark — Sign in",
+        "url": "https://app.hark.com/login"
+      },
+      "result": {
+        "ok": true,
+        "probedAt": "2026-10-19T19:26:35.167Z",
+        "meta": {
+          "url": "https://app.hark.com/login",
+          "origin": "https://app.hark.com",
+          "title": "Hark — Sign in",
+          "lang": "en",
+          "readyState": "complete",
+          "charset": "UTF-8",
+          "contentType": "text/html",
+          "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+          "viewport": {
+            "width": 1439,
+            "height": 812,
+            "devicePixelRatio": 1
+          },
+          "settleWaitedMs": 2200,
+          "bodyTextSample": "This wallpaper needs WebGL, which isn’t available in your browser. hark pro A new kind of system for getting things done. Whatever you need, let Hark handle it. Continue with Google Continue with Apple or Continue By continuing, you agree to our Terms of Service and acknowledge that your data will be processed in accordance with our Privacy Policy."
+        },
+        "framework": {
+          "isNextJs": false,
+          "nextDataScript": false,
+          "nextAppRouter": false,
+          "nextStaticAssets": 0,
+          "reactRoot": true,
+          "bodyClassList": [],
+          "metaTags": {},
+          "scriptHosts": [
+            "assets.hark.com",
+            "static.cloudflareinsights.com"
+          ]
+        },
+        "shadow": {
+          "hostCount": 0,
+          "hosts": [],
+          "rootsScanned": 1
+        },
+        "iframes": [
+          {
+            "src": "",
+            "name": null,
+            "title": null,
+            "visible": false,
+            "rect": null,
+            "sameOrigin": true,
+            "composerInside": false
+          }
+        ],
+        "loginSignals": {
+          "passwordInputs": [],
+          "authButtons": [
+            {
+              "label": "Continue with Google",
+              "tag": "button",
+              "ariaLabel": null,
+              "dataTestId": "google-sign-in",
+              "cssPath": "body > div:nth-child(3) > div.mr6c8q0 > div[data-testid=\"auth-page-shell\"] > div._10qhyq25:nth-child(2) > div[data-testid=\"auth-column\"] > div[data-testid=\"auth-card\"] > div._10qhyq2a > div.biwpmn0:nth-child(1) > button[data-testid=\"google-sign-in\"]:nth-child(1)",
+              "rect": {
+                "x": 831,
+                "y": 343,
+                "w": 380,
+                "h": 48
+              }
+            },
+            {
+              "label": "Continue with Apple",
+              "tag": "button",
+              "ariaLabel": null,
+              "dataTestId": "apple-sign-in",
+              "cssPath": "body > div:nth-child(3) > div.mr6c8q0 > div[data-testid=\"auth-page-shell\"] > div._10qhyq25:nth-child(2) > div[data-testid=\"auth-column\"] > div[data-testid=\"auth-card\"] > div._10qhyq2a > div.biwpmn0:nth-child(1) > button[data-testid=\"apple-sign-in\"]:nth-child(2)",
+              "rect": {
+                "x": 831,
+                "y": 403,
+                "w": 380,
+                "h": 48
+              }
+            }
+          ],
+          "authLinks": [],
+          "oauthMarkers": [],
+          "dialogs": []
+        },
+        "composers": [
+          {
+            "tag": "input",
+            "inputType": "text",
+            "role": null,
+            "contenteditable": null,
+            "id": null,
+            "name": null,
+            "ariaLabel": null,
+            "placeholder": "Mobile number or email address",
+            "dataTestId": "entry-input",
+            "autocomplete": "username",
+            "classList": [
+              "phwvnh8",
+              "phwvnh7",
+              "_10qhyq2c",
+              "biwpmnb"
+            ],
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 831,
+              "y": 510,
+              "w": 380,
+              "h": 48
+            },
+            "disabled": false,
+            "readOnly": false,
+            "likelyAuthField": true,
+            "cssPath": "body > div:nth-child(3) > div.mr6c8q0 > div[data-testid=\"auth-page-shell\"] > div._10qhyq25:nth-child(2) > div[data-testid=\"auth-column\"] > div[data-testid=\"auth-card\"] > div._10qhyq2a > form.biwpmn7.biwpmn6 > div.phwvnh9.biwpmnd > input[data-testid=\"entry-input\"]",
+            "parentChain": [
+              "div.phwvnh9.biwpmnd",
+              "form.biwpmn7.biwpmn6",
+              "div._10qhyq2a",
+              "div[data-testid=\"auth-card\"]"
+            ],
+            "closestForm": "body > div:nth-child(3) > div.mr6c8q0 > div[data-testid=\"auth-page-shell\"] > div._10qhyq25:nth-child(2) > div[data-testid=\"auth-column\"] > div[data-testid=\"auth-card\"] > div._10qhyq2a > form.biwpmn7.biwpmn6"
+          }
+        ],
+        "composerScopes": [
+          {
+            "how": "closest(form)",
+            "cssPath": "body > div:nth-child(3) > div.mr6c8q0 > div[data-testid=\"auth-page-shell\"] > div._10qhyq25:nth-child(2) > div[data-testid=\"auth-column\"] > div[data-testid=\"auth-card\"] > div._10qhyq2a > form.biwpmn7.biwpmn6",
+            "tag": "form",
+            "classList": [
+              "biwpmn7",
+              "biwpmn6"
+            ],
+            "dataTestId": null,
+            "role": null,
+            "buttonCount": 1,
+            "composerCount": 1,
+            "rect": {
+              "x": 831,
+              "y": 510,
+              "w": 380,
+              "h": 116
+            }
+          }
+        ],
+        "sendButtonCandidates": [
+          {
+            "tag": "button",
+            "ariaLabel": "",
+            "dataTestId": "entry-continue",
+            "title": null,
+            "type": "submit",
+            "text": "Continue",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 831,
+              "y": 578,
+              "w": 380,
+              "h": 48
+            },
+            "disabled": true,
+            "classList": [
+              "_1ngl3w30",
+              "_1ngl3w31",
+              "_1ngl3w33",
+              "_1ngl3w3c",
+              "_1ngl3w3k",
+              "_1ngl3w312"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": true,
+            "composerScope": "body > div:nth-child(3) > div.mr6c8q0 > div[data-testid=\"auth-page-shell\"] > div._10qhyq25:nth-child(2) > div[data-testid=\"auth-column\"] > div[data-testid=\"auth-card\"] > div._10qhyq2a > form.biwpmn7.biwpmn6",
+            "shadowHost": null,
+            "cssPath": "body > div:nth-child(3) > div.mr6c8q0 > div[data-testid=\"auth-page-shell\"] > div._10qhyq25:nth-child(2) > div[data-testid=\"auth-column\"] > div[data-testid=\"auth-card\"] > div._10qhyq2a > form.biwpmn7.biwpmn6 > button[data-testid=\"entry-continue\"]",
+            "sendHints": [
+              "type-submit"
+            ]
+          }
+        ],
+        "buttons": [
+          {
+            "tag": "button",
+            "ariaLabel": "",
+            "dataTestId": "google-sign-in",
+            "title": null,
+            "type": "button",
+            "text": "Continue with Google",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 831,
+              "y": 343,
+              "w": 380,
+              "h": 48
+            },
+            "disabled": false,
+            "classList": [
+              "_1ngl3w30",
+              "_1ngl3w31",
+              "_1ngl3w33",
+              "_1ngl3w3c",
+              "_1ngl3w3k",
+              "_1ngl3w312"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > div:nth-child(3) > div.mr6c8q0 > div[data-testid=\"auth-page-shell\"] > div._10qhyq25:nth-child(2) > div[data-testid=\"auth-column\"] > div[data-testid=\"auth-card\"] > div._10qhyq2a > div.biwpmn0:nth-child(1) > button[data-testid=\"google-sign-in\"]:nth-child(1)",
+            "sendHints": []
+          },
+          {
+            "tag": "button",
+            "ariaLabel": "",
+            "dataTestId": "apple-sign-in",
+            "title": null,
+            "type": "button",
+            "text": "Continue with Apple",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 831,
+              "y": 403,
+              "w": 380,
+              "h": 48
+            },
+            "disabled": false,
+            "classList": [
+              "_1ngl3w30",
+              "_1ngl3w31",
+              "_1ngl3w33",
+              "_1ngl3w3c",
+              "_1ngl3w3k",
+              "_1ngl3w312"
+            ],
+            "hasSvg": true,
+            "iconIds": [],
+            "inComposerScope": false,
+            "composerScope": null,
+            "shadowHost": null,
+            "cssPath": "body > div:nth-child(3) > div.mr6c8q0 > div[data-testid=\"auth-page-shell\"] > div._10qhyq25:nth-child(2) > div[data-testid=\"auth-column\"] > div[data-testid=\"auth-card\"] > div._10qhyq2a > div.biwpmn0:nth-child(1) > button[data-testid=\"apple-sign-in\"]:nth-child(2)",
+            "sendHints": []
+          },
+          {
+            "tag": "button",
+            "ariaLabel": "",
+            "dataTestId": "entry-continue",
+            "title": null,
+            "type": "submit",
+            "text": "Continue",
+            "visible": true,
+            "hiddenReason": null,
+            "rect": {
+              "x": 831,
+              "y": 578,
+              "w": 380,
+              "h": 48
+            },
+            "disabled": true,
+            "classList": [
+              "_1ngl3w30",
+              "_1ngl3w31",
+              "_1ngl3w33",
+              "_1ngl3w3c",
+              "_1ngl3w3k",
+              "_1ngl3w312"
+            ],
+            "hasSvg": false,
+            "iconIds": [],
+            "inComposerScope": true,
+            "composerScope": "body > div:nth-child(3) > div.mr6c8q0 > div[data-testid=\"auth-page-shell\"] > div._10qhyq25:nth-child(2) > div[data-testid=\"auth-column\"] > div[data-testid=\"auth-card\"] > div._10qhyq2a > form.biwpmn7.biwpmn6",
+            "shadowHost": null,
+            "cssPath": "body > div:nth-child(3) > div.mr6c8q0 > div[data-testid=\"auth-page-shell\"] > div._10qhyq25:nth-child(2) > div[data-testid=\"auth-column\"] > div[data-testid=\"auth-card\"] > div._10qhyq2a > form.biwpmn7.biwpmn6 > button[data-testid=\"entry-continue\"]",
+            "sendHints": [
+              "type-submit"
+            ]
+          }
+        ],
+        "messageListHints": [],
+        "repeatedGroups": [
+          {
+            "signature": "video._1dmv1bm1",
+            "count": 4,
+            "score": 3.2,
+            "parentPath": "body > div:nth-child(3) > div.mr6c8q0 > div[data-testid=\"auth-page-shell\"] > div[data-testid=\"auth-side-image\"]:nth-child(1) > div[data-testid=\"campaign-videos\"]",
+            "parentTag": "div",
+            "parentClass": "_1dmv1bm0",
+            "parentRole": null,
+            "parentDataTestId": "campaign-videos",
+            "depth": 0,
+            "shadowHost": null,
+            "parentVisible": true,
+            "textBearingChildren": 0,
+            "hasMessageAttributes": true,
+            "messageAttributeCount": 4,
+            "conversationNamedCount": 0,
+            "roleVariety": [],
+            "visibleChildren": 0,
+            "sampleTexts": [
+              "",
+              "",
+              ""
+            ]
+          }
+        ],
+        "attributeInventory": {
+          "data-testid": [
+            {
+              "where": "video",
+              "value": "campaign-video",
+              "count": 4
+            },
+            {
+              "where": "div",
+              "value": "auth-page-shell",
+              "count": 1
+            },
+            {
+              "where": "div",
+              "value": "auth-side-image",
+              "count": 1
+            },
+            {
+              "where": "div",
+              "value": "campaign-videos",
+              "count": 1
+            },
+            {
+              "where": "div",
+              "value": "auth-column",
+              "count": 1
+            },
+            {
+              "where": "div",
+              "value": "auth-card",
+              "count": 1
+            },
+            {
+              "where": "button",
+              "value": "google-sign-in",
+              "count": 1
+            },
+            {
+              "where": "button",
+              "value": "apple-sign-in",
+              "count": 1
+            },
+            {
+              "where": "input",
+              "value": "entry-input",
+              "count": 1
+            },
+            {
+              "where": "button",
+              "value": "entry-continue",
+              "count": 1
+            }
+          ],
+          "data-slot": [
+            {
+              "where": "svg",
+              "value": "icon",
+              "count": 1
+            }
+          ],
+          "placeholder": [
+            {
+              "where": "input",
+              "value": "Mobile number or email address",
+              "count": 1
+            }
+          ]
+        },
+        "suggested": {
+          "composer": [
+            "body > div:nth-child(3) > div.mr6c8q0 > div[data-testid=\"auth-page-shell\"] > div._10qhyq25:nth-child(2) > div[data-testid=\"auth-column\"] > div[data-testid=\"auth-card\"] > div._10qhyq2a > form.biwpmn7.biwpmn6 > div.phwvnh9.biwpmnd > input[data-testid=\"entry-input\"]",
+            "input[data-testid=\"entry-input\"]",
+            "input[placeholder=\"Mobile number or email address\"]"
+          ],
+          "composerScope": [
+            "body > div:nth-child(3) > div.mr6c8q0 > div[data-testid=\"auth-page-shell\"] > div._10qhyq25:nth-child(2) > div[data-testid=\"auth-column\"] > div[data-testid=\"auth-card\"] > div._10qhyq2a > form.biwpmn7.biwpmn6"
+          ],
+          "sendButton": [
+            "body > div:nth-child(3) > div.mr6c8q0 > div[data-testid=\"auth-page-shell\"] > div._10qhyq25:nth-child(2) > div[data-testid=\"auth-column\"] > div[data-testid=\"auth-card\"] > div._10qhyq2a > form.biwpmn7.biwpmn6 > button[data-testid=\"entry-continue\"]",
+            "button[data-testid=\"entry-continue\"]"
+          ],
+          "messageList": [
+            "body > div:nth-child(3) > div.mr6c8q0 > div[data-testid=\"auth-page-shell\"] > div[data-testid=\"auth-side-image\"]:nth-child(1) > div[data-testid=\"campaign-videos\"]"
+          ],
+          "messageRow": [
+            "video._1dmv1bm1"
+          ]
+        },
+        "notes": [
+          "只有登录/邮箱类输入框，没有对话输入框：当前是入口页（未登录），对话 composer 需要登录后标定"
+        ],
+        "warnings": [],
+        "counts": {
+          "elements": 81,
+          "composers": 1,
+          "visibleComposers": 1,
+          "chatComposers": 0,
+          "buttons": 3,
+          "visibleButtons": 3,
+          "repeatedGroups": 1
+        }
+      }
+    }
+  ]
+}

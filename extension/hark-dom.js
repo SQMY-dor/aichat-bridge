@@ -1,0 +1,332 @@
+import { normalizeText, conversationUrl } from './shared.js';
+import {
+  PageSafetyError, visible, composerText, markdownText as sharedMarkdown,
+  validateInputImages, decodeImagePayload, MAX_IMAGES, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES,
+} from './dom.js';
+export { PageSafetyError, visible, composerText, validateInputImages, MAX_IMAGES, MAX_IMAGE_BYTES, MAX_TOTAL_IMAGE_BYTES };
+
+// Hark Pro 网页端（https://app.hark.com）适配器。
+//
+// 已核实的事实（2026-10，见 docs/hark-integration.md 与 scripts/hark-probe-result.json）：
+//   * 营销站 hark.com 是 Next.js App Router；产品应用在 app.hark.com，未登录时
+//     除 /login 外所有路由都返回 401，客户端 302 到 /login。
+//   * 两个站点都用 CSS Modules 哈希类名（biwpmn0 / _10qhyq2a / 模块前缀），
+//     每次发布都会变 —— 因此本适配器绝不按类名选择，只认 data-testid、
+//     结构关系与稳定文本。
+//   * 登录页的稳定钩子：auth-page-shell / auth-card / entry-input /
+//     entry-continue / google-sign-in / apple-sign-in。
+//   * 登录后的对话页 DOM 尚未标定：它只在会话内存在。因此 SELECTORS 是一张
+//     唯一的、可替换的选择器登记表，每个查询失败都带着"缺哪个钩子"的中文错误
+//     停下，绝不猜着点按钮。scripts/hark-dom-probe.js 是标定工具，
+//     test/extension-hark-dom.test.js + test/helpers/hark-fixture.js 用合成 DOM
+//     证明本适配器的契约逻辑正确（与线上结构无关）。
+//
+// 标定流程：登录后跑探针 → 把得到的 data-testid 填进 SELECTORS →
+// 再跑 npm run check / npm test。在 SELECTORS 仍是"未标定"状态时，
+// content.js 只会在 assertReady/composer 阶段抛错，不会提交任何提问。
+export const SELECTORS = {
+  // 登录态判定。出现即视为不可用。
+  signedOut: '[data-testid="auth-card"], [data-testid="auth-page-shell"], [data-testid="entry-input"]',
+  // 对话页。
+  composer: '[data-testid="composer-input"], [data-testid="chat-composer-input"], [data-testid="prompt-input"]',
+  scope: '[data-testid="composer"], [data-testid="chat-composer"], [data-testid="composer-shell"]',
+  send: '[data-testid="composer-send"], [data-testid="send-button"]',
+  stop: '[data-testid="composer-stop"], [data-testid="stop-button"]',
+  user: '[data-testid="message-user"]',
+  assistant: '[data-testid="message-assistant"]',
+  answerBody: '[data-testid="message-body"], [data-testid="assistant-markdown"]',
+  completion: '[data-testid="message-actions"], [data-testid="message-copy"]',
+  attachment: '[data-testid="composer-attachment"], [data-testid="attachment-preview"]',
+};
+
+// 仅供标定与离线冒烟测试使用：整体替换登记表，先做完整校验再落地，
+// 避免半张表被写进运行中的页面。
+export function applyCalibration(next) {
+  if (!next || typeof next !== 'object' || Array.isArray(next)) throw new PageSafetyError('Hark 选择器登记表无效');
+  const merged = { ...SELECTORS };
+  for (const [key, value] of Object.entries(next)) {
+    if (!Object.hasOwn(SELECTORS, key)) throw new PageSafetyError('未知的 Hark 选择器键：' + key);
+    if (typeof value !== 'string' || !value.trim() || /[\x00-\x1f\x7f]/.test(value)) throw new PageSafetyError('Hark 选择器 ' + key + ' 无效');
+    merged[key] = value;
+  }
+  Object.assign(SELECTORS, merged);
+  return { ...SELECTORS };
+}
+
+const uploads = new WeakMap();
+const enabled = node => visible(node) && !node.disabled && !node.matches(':disabled') &&
+  node.getAttribute('aria-disabled') !== 'true' && !node.closest('[inert], [aria-disabled="true"]');
+const miss = what => new PageSafetyError(
+  'Hark 对话页结构尚未标定：找不到' + what +
+  '。请先登录后在网页运行 scripts/hark-dom-probe.js，按输出的 data-testid 更新 extension/hark-dom.js 的 SELECTORS');
+
+export function signedOut(doc) { return [...doc.querySelectorAll(SELECTORS.signedOut)].some(visible); }
+export function assertSignedIn(doc) {
+  if (signedOut(doc)) throw new PageSafetyError('Hark 尚未登录：请先在绑定的网页完成登录，再让机器人继续');
+}
+export function pageChallengeActive(doc) {
+  return [...doc.querySelectorAll('#challenge-running, #challenge-stage, iframe[src*="challenges.cloudflare.com"]')].some(visible);
+}
+function assertNoOverlay(doc) {
+  assertSignedIn(doc);
+  if (pageChallengeActive(doc)) throw new PageSafetyError('Hark 网页正在验证，请先手动完成验证');
+  if ([...doc.querySelectorAll('[role="dialog"][aria-modal="true"]')].some(visible)) throw new PageSafetyError('Hark 有待处理的对话框，请先在网页处理');
+}
+export function composerScope(input) {
+  return input?.closest(SELECTORS.scope) || input?.closest('form') || null;
+}
+export function composer(doc) {
+  assertNoOverlay(doc);
+  const inputs = [...doc.querySelectorAll(SELECTORS.composer)].filter(visible);
+  if (!inputs.length) throw miss(' Hark 对话输入框');
+  if (inputs.length > 1) throw new PageSafetyError('检测到多个可见的 Hark 输入框，暂不自动操作');
+  const input = inputs[0];
+  if (input.tagName !== 'TEXTAREA' && input.getAttribute('contenteditable') !== 'true') throw new PageSafetyError('Hark 输入框结构已变化，已停止自动操作');
+  if (!enabled(input) || input.readOnly) throw new PageSafetyError('Hark 输入框当前不可用');
+  return input;
+}
+export function composerInteraction(target, input) {
+  return Boolean(target?.closest && (target.closest(SELECTORS.composer) || (input && composerScope(input)?.contains(target)) || target.closest(SELECTORS.send)));
+}
+export function generating(doc) {
+  if ([...doc.querySelectorAll(SELECTORS.stop)].some(visible)) return true;
+  return [...doc.querySelectorAll(SELECTORS.assistant)].some(node => visible(node) && node.getAttribute('data-state') === 'streaming');
+}
+export function hasAttachments(input) {
+  const scope = composerScope(input); if (!scope) return true;
+  if ([...scope.querySelectorAll('input[type="file"]')].some(field => field.files?.length)) return true;
+  return [...scope.querySelectorAll(SELECTORS.attachment + ', img, [role="progressbar"], [aria-busy="true"]')].some(visible);
+}
+export function turns(doc, role) {
+  const selector = role === 'user' ? SELECTORS.user : SELECTORS.assistant;
+  return [...doc.querySelectorAll(selector)]
+    .filter(node => !node.parentElement?.closest(selector))
+    .sort((a, b) => a.compareDocumentPosition(b) & 4 ? -1 : 1);
+}
+function stableKey(node) { return node.getAttribute('data-message-id') || node.getAttribute('data-id') || null; }
+function turnText(node) {
+  const bodies = [...node.querySelectorAll(SELECTORS.answerBody)].filter(visible);
+  const root = bodies.length === 1 ? bodies[0] : node;
+  return normalizeText(composerText(root.cloneNode(true)));
+}
+// 没有稳定 id 时退回"文档顺序 + 角色"，只用于同一轮快照内的相对比较，
+// 绝不跨轮当作已确认身份使用。
+function keys(list) { return list.map((node, index) => stableKey(node) || 'index:' + index); }
+export function snapshot(doc) {
+  const users = turns(doc, 'user');
+  const userKeys = keys(users);
+  return {
+    users: new Set(userKeys),
+    lastUserKey: userKeys.length ? userKeys.at(-1) : null,
+    assistants: new Set(keys(turns(doc, 'assistant'))),
+    imageSources: new Set([...doc.querySelectorAll('img')].map(image => image.currentSrc || image.src).filter(Boolean)),
+    userKeys,
+  };
+}
+export function newUsers(doc, baseline) {
+  const users = turns(doc, 'user');
+  const current = keys(users);
+  if (!baseline.users.size) return users.filter((node, index) => !baseline.users.has(current[index]));
+  const anchor = baseline.userKeys ? baseline.userKeys.indexOf(baseline.lastUserKey) : current.indexOf(baseline.lastUserKey);
+  if (anchor < 0) throw new PageSafetyError('原有 Hark 用户消息基准已消失，无法确认新消息范围，已停止转发');
+  return users.slice(anchor + 1).filter((node, index) => !baseline.users.has(current[anchor + 1 + index]));
+}
+function submissionState(doc, baseline, prompt) {
+  const users = newUsers(doc, baseline);
+  if (users.length > 1) throw new PageSafetyError('检测到其他新消息，已停止转发，避免混淆回复');
+  if (!users.length) return null;
+  const actual = turnText(users[0]);
+  const expected = normalizeText(prompt);
+  if (actual !== expected && !expected.startsWith(actual)) throw new PageSafetyError('新增网页消息与本次群消息不同，已停止转发');
+  return { user: users[0], expected, pending: actual !== expected };
+}
+export function findSubmittedUser(doc, baseline, prompt) {
+  const state = submissionState(doc, baseline, prompt);
+  if (!state || state.pending) return null;
+  baseline.submittedText = state.expected;
+  return state.user;
+}
+export function submittedUserPending(doc, baseline, prompt) {
+  // 只说明"本轮消息已出现、正文还没挂全"。content.js 仍按原任务时限等待，
+  // 该判断绝不确认提问，也绝不授权答案。
+  return submissionState(doc, baseline, prompt)?.pending === true;
+}
+export function submissionWaitReason(doc, baseline, prompt) {
+  const users = newUsers(doc, baseline);
+  if (!users.length) return 'Hark 尚未出现可识别的新提问';
+  if (users.length !== 1) return 'Hark 出现多个新提问';
+  return `Hark 提问正文尚未完整（已识别 ${turnText(users[0]).length}/${normalizeText(prompt).length} 字符）`;
+}
+export function assertReady(doc) {
+  assertNoOverlay(doc);
+  if (generating(doc)) throw new PageSafetyError('该对话正在生成回复，请等待完成');
+  const lastUser = turns(doc, 'user').at(-1), lastAnswer = turns(doc, 'assistant').at(-1);
+  if (lastUser && (!lastAnswer || !(lastUser.compareDocumentPosition(lastAnswer) & 4))) throw new PageSafetyError('上一条 Hark 网页提问尚未明确完成，请先在网页处理');
+  const input = composer(doc);
+  if (hasAttachments(input)) throw new PageSafetyError('输入区存在附件或正在上传，本次不会发送');
+  if (normalizeText(composerText(input))) throw new PageSafetyError('输入框有草稿，本次不会覆盖草稿');
+  return input;
+}
+export function sendButton(doc, input) {
+  if (composer(doc) !== input) throw new PageSafetyError('Hark 输入框已被替换，已停止发送');
+  const scope = composerScope(input);
+  if (!scope) throw new PageSafetyError('无法确认 Hark 输入框所属发送区');
+  const buttons = [...scope.querySelectorAll(SELECTORS.send)].filter(visible);
+  if (buttons.length !== 1) return null;
+  return enabled(buttons[0]) ? buttons[0] : null;
+}
+export function insertPrompt(doc, input, prompt) {
+  if (!input.isConnected || !enabled(input) || input.readOnly) throw new PageSafetyError('网页输入框当前不可用，已停止写入');
+  if (normalizeText(composerText(input))) throw new PageSafetyError('检测到新草稿，已停止写入');
+  input.focus();
+  if (input.tagName === 'TEXTAREA') {
+    const setter = Object.getOwnPropertyDescriptor(doc.defaultView.HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(input, prompt);
+    input.dispatchEvent(new doc.defaultView.InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
+  } else {
+    const range = doc.createRange(); range.selectNodeContents(input);
+    const selection = doc.defaultView.getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    let emitted = false; const observe = () => { emitted = true; };
+    input.addEventListener('input', observe, true);
+    try {
+      if (typeof doc.execCommand !== 'function' || !doc.execCommand('insertText', false, prompt)) throw new PageSafetyError('浏览器未接受正常文本输入，已停止发送');
+    } finally { input.removeEventListener('input', observe, true); }
+    if (!emitted) input.dispatchEvent(new doc.defaultView.InputEvent('input', { bubbles: true, inputType: 'insertText', data: prompt }));
+  }
+  if (normalizeText(composerText(input)) !== normalizeText(prompt)) throw new PageSafetyError('网页输入内容与任务不同，已停止发送');
+}
+// 共享的 dom.js paste 会重新用 ChatGPT 的输入框选择器自检，这里按 Hark 的
+// 输入框重新校验，其余字节校验仍复用 decodeImagePayload。
+export function pasteInputImage(doc, input, { mimeType, base64 }, name) {
+  if (composer(doc) !== input || typeof name !== 'string' || !/^[A-Za-z0-9._-]{1,150}$/.test(name)) throw new PageSafetyError('无法确认 Hark 图片输入目标');
+  const bytes = decodeImagePayload(mimeType, base64);
+  const win = doc.defaultView;
+  if (typeof win.DataTransfer !== 'function' || typeof win.ClipboardEvent !== 'function') throw new PageSafetyError('当前浏览器不支持正常图片粘贴，已停止发送');
+  const transfer = new win.DataTransfer();
+  transfer.items.add(new win.File([bytes], name, { type: mimeType }));
+  input.focus();
+  input.dispatchEvent(new win.ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData: transfer }));
+  const records = uploads.get(input) || []; records.push(name); uploads.set(input, records);
+}
+export function releaseInputImages(input) { uploads.delete(input); }
+export function inputAttachmentState(input, names) {
+  const scope = composerScope(input);
+  if (!scope || new Set(names).size !== names.length) throw new PageSafetyError('无法确认本次 Hark 图片附件');
+  if (!names.length) return { ready: !hasAttachments(input) };
+  if ([...scope.querySelectorAll('[role="alert"]')].some(visible)) throw new PageSafetyError('Hark 报告图片上传失败，已停止发送');
+  if ([...scope.querySelectorAll('[role="progressbar"], [aria-busy="true"]')].some(visible)) return { ready: false, reason: 'uploading' };
+  const attachments = [...scope.querySelectorAll(SELECTORS.attachment)].filter(visible);
+  if (!attachments.length) return { ready: false, reason: 'no-attachment' };
+  if (attachments.length !== names.length) return { ready: false, reason: 'name-mismatch' };
+  const named = node => new Set([node, ...node.querySelectorAll('*')].filter(visible).flatMap(element => names.filter(name =>
+    ['alt', 'title', 'aria-label'].some(attribute => element.getAttribute(attribute) === name) ||
+    (!element.childElementCount && normalizeText(element.textContent) === name))));
+  const matched = new Set();
+  for (const name of names) {
+    const found = attachments.filter(node => named(node).has(name));
+    if (found.length !== 1 || matched.has(found[0])) return { ready: false, reason: 'name-mismatch' };
+    matched.add(found[0]);
+  }
+  return { ready: matched.size === names.length };
+}
+export function markdownText(body) { return sharedMarkdown(body); }
+export function answerImageSource(value) {
+  try {
+    const url = new URL(value);
+    if (url.protocol === 'blob:' && url.origin === 'https://app.hark.com') return url.href;
+    if (url.protocol === 'https:' && !url.port && !url.username && !url.password &&
+      (url.hostname === 'app.hark.com' || url.hostname === 'assets.hark.com')) return url.href;
+  } catch {}
+  throw new PageSafetyError('本次 Hark 回复图片的来源不受支持，未读取或转发图片');
+}
+export function finalCandidate(doc, baseline, previousUser) {
+  if (baseline.submittedText === undefined) throw new PageSafetyError('对话出现其他消息或内容被替换，停止转发');
+  // 归属校验：本轮只允许存在唯一的新提问，其他新消息一律停止，
+  // 避免把别人的追问当成本次任务的答案。
+  const pending = newUsers(doc, baseline);
+  if (pending.length > 1) throw new PageSafetyError('检测到其他新消息，已停止转发，避免混淆回复');
+  const current = turns(doc, 'user').at(-1);
+  if (!current) throw new PageSafetyError('本轮 Hark 提问已消失，已停止转发');
+  if (turnText(current) !== baseline.submittedText) throw new PageSafetyError('已确认的网页消息内容被替换，已停止转发');
+  if (generating(doc)) return null;
+  const answers = turns(doc, 'assistant');
+  const answerKeys = keys(answers);
+  const following = answers.filter((node, index) => !baseline.assistants.has(answerKeys[index]) && (current.compareDocumentPosition(node) & 4));
+  if ([...doc.querySelectorAll('[role="alert"]')].filter(visible).some(node => current.compareDocumentPosition(node) & 4)) {
+    throw new PageSafetyError('Hark 网页回复失败，请在网页处理；本次不会重新提问');
+  }
+  if (following.length !== 1) return null;
+  const message = following[0];
+  if (![...message.querySelectorAll(SELECTORS.completion)].some(visible)) return null;
+  const bodies = [...message.querySelectorAll(SELECTORS.answerBody)].filter(node => visible(node) && !node.parentElement?.closest(SELECTORS.answerBody));
+  if (bodies.length > 1) return null;
+  const images = []; const seen = new Set();
+  for (const image of message.querySelectorAll('img')) {
+    if (!visible(image)) continue;
+    const source = image.currentSrc || image.src;
+    if (seen.has(source) || baseline.imageSources.has(source)) continue;
+    seen.add(source);
+    let src; try { src = answerImageSource(source); } catch { continue; }
+    if (!image.complete) return null;
+    if (!image.naturalWidth || !image.naturalHeight) throw new PageSafetyError('Hark 回复图片尚未正常加载');
+    images.push({ src, width: image.naturalWidth, height: image.naturalHeight });
+    if (images.length > MAX_IMAGES) throw new PageSafetyError('本次回复超过 4 张图片，请在网页查看完整结果');
+  }
+  const text = bodies.length ? markdownText(bodies[0]) : '';
+  return text || images.length ? { message, text, images } : null;
+}
+// 共享的 readAnswerImage 绑定 ChatGPT 的图片域名，这里用 Hark 的来源白名单。
+export async function readAnswerImage(image, { fetchImpl = globalThis.fetch, timeoutMs = 15000 } = {}) {
+  const source = answerImageSource(image.src);
+  const controller = new AbortController();
+  let reader; let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reader?.cancel().catch(() => {});
+      reject(new PageSafetyError('读取本次 Hark 回复图片超时，请在网页查看'));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([timeout, (async () => {
+      const response = await fetchImpl(source, { signal: controller.signal, credentials: 'omit', redirect: 'error', cache: 'no-store', referrerPolicy: 'no-referrer' });
+      if (!response.ok || !response.body?.getReader) throw new PageSafetyError('无法读取本次 Hark 回复图片，请在网页确认图片可以打开');
+      reader = response.body.getReader();
+      const chunks = []; let size = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        size += value.byteLength;
+        if (size > MAX_IMAGE_BYTES) throw new PageSafetyError('单张图片超过 10 MB，请在网页查看原图');
+        chunks.push(value);
+      }
+      const bytes = new Uint8Array(size); let offset = 0;
+      for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+      let binary = '';
+      for (let start = 0; start < bytes.length; start += 32768) binary += String.fromCharCode(...bytes.subarray(start, start + 32768));
+      const base64 = btoa(binary);
+      decodeImagePayload(mimeTypeOf(response), base64);
+      return { mimeType: mimeTypeOf(response), base64, byteLength: bytes.length };
+    })()]);
+  } catch (error) {
+    if (error instanceof PageSafetyError) throw error;
+    throw new PageSafetyError('无法读取本次 Hark 回复图片，可能是图片访问受限或连接中断；未转发空图片');
+  } finally { clearTimeout(timer); controller.abort(); reader?.cancel().catch(() => {}); }
+}
+function mimeTypeOf(response) {
+  const type = (response.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  if (!['image/png', 'image/jpeg', 'image/webp'].includes(type)) throw new PageSafetyError('图片格式不支持，仅支持 PNG、JPEG 和 WebP');
+  return type;
+}
+export function refreshComposer(doc, input) {
+  if (input.isConnected) return input;
+  // 只有同一输入区的布局替换可以继承附件账本；绝不接管任意新编辑器。
+  const records = uploads.get(input);
+  try {
+    const current = composer(doc);
+    if (normalizeText(composerText(current))) return input;
+    if (records) { uploads.set(current, records); uploads.delete(input); }
+    return current;
+  } catch { return input; }
+}
+export function threadUrl(value) { return conversationUrl(value, 'hark'); }

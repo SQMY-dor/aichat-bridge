@@ -6,6 +6,8 @@ import * as chatgpt from '../extension/dom.js';
 import * as claude from '../extension/claude-dom.js';
 import * as gemini from '../extension/gemini-dom.js';
 import * as qwen from '../extension/qwen-dom.js';
+import * as hark from '../extension/hark-dom.js';
+import { user as harkUser, answer as harkAnswer, finish as harkFinish, url as harkUrl } from './helpers/hark-fixture.js';
 import { composerHTML, user as qwenUser, answer as qwenAnswer, url as qwenUrl } from './helpers/qwen-fixture.js';
 import * as shared from '../extension/shared.js';
 
@@ -14,15 +16,17 @@ const source = (await readFile(new URL('../extension/content.js', import.meta.ur
   .replace("await import(chrome.runtime.getURL('claude-dom.js'))", 'globalThis.__testClaude')
   .replace("await import(chrome.runtime.getURL('gemini-dom.js'))", 'globalThis.__testGemini')
   .replace("await import(chrome.runtime.getURL('qwen-dom.js'))", 'globalThis.__testQwen')
+  .replace("await import(chrome.runtime.getURL('hark-dom.js'))", 'globalThis.__testHark')
   .replace("await import(chrome.runtime.getURL('shared.js'))", 'globalThis.__testShared');
 const fixtures = {
   qwen: '<main><div id="chat-message-container"></div>' + composerHTML + '</main>',
   chatgpt: '<main></main><div data-composer-body><div data-composer-attachments></div><div data-composer-markdown contenteditable="true" role="textbox"></div><button type="submit" aria-label="发送"></button></div>',
   claude: await readFile(new URL('./fixtures/claude-conversation.html', import.meta.url), 'utf8'),
   gemini: await readFile(new URL('./fixtures/gemini-conversation.html', import.meta.url), 'utf8'),
+  hark: '<main><div data-testid="message-list"></div><div data-testid="composer"><div data-testid="composer-attachments"></div><div data-testid="composer-input" contenteditable="true" role="textbox"></div><button data-testid="composer-send" aria-label="发送"></button></div></main>',
 };
-const urls = { qwen: qwenUrl, chatgpt: 'https://chatgpt.com/c/composer-lifecycle-fixture', claude: 'https://claude.ai/chat/composer-lifecycle-fixture', gemini: 'https://gemini.google.com/app/composer-lifecycle-fixture' };
-const adapters = { chatgpt, claude, gemini, qwen };
+const urls = { qwen: qwenUrl, chatgpt: 'https://chatgpt.com/c/composer-lifecycle-fixture', claude: 'https://claude.ai/chat/composer-lifecycle-fixture', gemini: 'https://gemini.google.com/app/composer-lifecycle-fixture', hark: harkUrl };
+const adapters = { chatgpt, claude, gemini, qwen, hark };
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
 const metadata = { id: '1'.repeat(64), mimeType: 'image/png', name: 'source.png', bytes: png.length };
@@ -39,7 +43,7 @@ async function fixture(assistant, { remount, action, rpcDelays = {}, timeoutMs =
   win.Date = class extends Date { static now() { return now; } };
   win.setTimeout = (fn, ms) => schedule(fn, ms); win.clearTimeout = id => timers.delete(id);
   win.setInterval = (fn, ms) => schedule(fn, ms, ms); win.clearInterval = id => timers.delete(id);
-  win.__testQwen = qwen; win.__testShared = shared; win.__testChatGPT = chatgpt; win.__testClaude = claude; win.__testGemini = gemini;
+  win.__testQwen = qwen; win.__testShared = shared; win.__testChatGPT = chatgpt; win.__testClaude = claude; win.__testGemini = gemini; win.__testHark = hark;
   doc.execCommand = (command, _ui, text) => { assert.equal(command, 'insertText'); currentInput.textContent = text; return true; };
   const remountComposer = (draft = '') => {
     const replacement = currentScope.cloneNode(true); currentScope.replaceWith(replacement); currentScope = replacement;
@@ -62,6 +66,8 @@ async function fixture(assistant, { remount, action, rpcDelays = {}, timeoutMs =
       complete = () => { answerRow.setAttribute('data-perf-row-streaming', 'false'); answerRow.querySelector('[data-is-streaming]').setAttribute('data-is-streaming', 'false'); };
     } else if (assistant === 'qwen') {
       qwenUser(doc, question, id + '-user'); const row = qwenAnswer(doc, '<p>Final answer</p>', id + '-answer'); row.setAttribute('aria-busy', 'true'); complete = () => row.removeAttribute('aria-busy');
+    } else if (assistant === 'hark') {
+      harkUser(doc, question, id + '-user'); const row = harkAnswer(doc, '<p>Final answer</p>', id + '-answer', { streaming: true }); complete = () => harkFinish(doc, id + '-answer', '<p>Final answer</p>');
     } else {
       const row = geminiTemplate.cloneNode(true); row.id = id; row.querySelector('.query-text').textContent = question;
       row.querySelector('.markdown-main-panel').innerHTML = '<p>Final answer</p>'; row.querySelector('.markdown-main-panel').setAttribute('aria-busy', 'true'); row.querySelector('.response-footer').classList.remove('complete');
@@ -72,7 +78,7 @@ async function fixture(assistant, { remount, action, rpcDelays = {}, timeoutMs =
   };
   const afterRemountAction = () => {
     if (action === 'human') { currentInput.textContent = 'Human replacement draft'; if (assistant === 'qwen') currentInput.value = 'Human replacement draft'; guards.get('input')?.({ type: 'input', isTrusted: true, target: currentInput }); }
-    if (action === 'navigation') win.history.replaceState({}, '', assistant === 'gemini' ? '/app/different-conversation' : assistant === 'claude' ? '/chat/different-conversation' : '/c/different-conversation');
+    if (action === 'navigation') win.history.replaceState({}, '', assistant === 'gemini' ? '/app/different-conversation' : assistant === 'hark' ? '/chat/different-conversation' : assistant === 'claude' ? '/chat/different-conversation' : '/c/different-conversation');
     if (action === 'second-user') appendResponse('A human follow-up', true);
   };
   originalInput.addEventListener('input', () => {

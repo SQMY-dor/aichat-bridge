@@ -1,0 +1,55 @@
+# deploy/aichat-bridge.service — systemd --user unit
+#
+# 安装 (不带 root 也行, 用 --user):
+#   mkdir -p ~/.config/systemd/user
+#   cp deploy/aichat-bridge.service ~/.config/systemd/user/
+#   # 默认按 %h/aichat-bridge 找仓库（%h = 当前用户 home）。
+#   # 仓库在别处时改 WorkingDirectory / ExecStart 两行即可:
+#   systemctl --user edit --full aichat-bridge
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now aichat-bridge
+#
+# 关键: 让 user manager 在没人登录时也常驻 (否则 SSH 退出后服务会被回收):
+#   loginctl enable-linger "$(id -un)"      # 需要 root 或 polkit 授权
+#
+# 查看:
+#   systemctl --user status aichat-bridge
+#   journalctl --user -u aichat-bridge -f
+#
+# 注意: unit 里的路径是绝对路径, 若仓库搬家请同步修改。
+
+[Unit]
+Description=AIChat桥接 — Xvfb + 有头 Chromium 常驻 (MV3 service worker)
+Documentation=file://%h/aichat-bridge/deploy/README.md
+After=network-online.target
+Wants=network-online.target
+# 不需要 graphical-session.target: 我们自带 Xvfb。
+
+[Service]
+Type=simple
+# %h = 当前用户 home; 仓库放别处时把下面三行换成绝对路径。
+WorkingDirectory=%h/aichat-bridge
+# run 子命令会 exec chromium, 因此 MainPID 就是 chromium 本体, 挂了 Restart 能感知。
+ExecStart=%h/aichat-bridge/deploy/start-linux.sh run
+ExecStop=%h/aichat-bridge/deploy/start-linux.sh stop
+# chromium 被杀后 Xvfb 残留的风险由 KillMode=control-group 兜底。
+KillMode=control-group
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+Restart=always
+RestartSec=5
+
+# 环境: 想换显示号/端口就在这里改, 或写进 %h/.config/aichat-bridge/env
+Environment=AICHAT_DISPLAY=:99
+Environment=AICHAT_DEBUG_PORT=9222
+Environment=AICHAT_WINDOW_SIZE=1920,1080
+Environment=HOME=%h
+EnvironmentFile=-%h/.config/aichat-bridge/env
+
+# 加固: 只允许写自己的数据目录 (chromium 需要 /dev/shm 与 $HOME)
+NoNewPrivileges=yes
+PrivateTmp=no
+
+[Install]
+WantedBy=default.target

@@ -1,7 +1,7 @@
 (() => {
   if (globalThis.__chatGPTBotBridge) return;
   globalThis.__chatGPTBotBridge = true;
-  const CONTENT_VERSION = '0.1.6';
+  const CONTENT_VERSION = '0.2.0';
   const pageOpenedAt = Date.now();
   let bridgeIdleSince = pageOpenedAt;
   const IDLE_REFRESH_MS = 10 * 60 * 1000;
@@ -53,7 +53,9 @@
     const assistant = assistantForUrl(location.href);
     if (!assistant) return;
     const assistantLabel = ASSISTANT_NAMES[assistant];
-    const dom = assistant === 'qwen'
+    const dom = assistant === 'hark'
+      ? await import(chrome.runtime.getURL('hark-dom.js'))
+      : assistant === 'qwen'
       ? await import(chrome.runtime.getURL('qwen-dom.js'))
       : assistant === 'gemini'
       ? await import(chrome.runtime.getURL('gemini-dom.js'))

@@ -58,6 +58,7 @@ test('assistant routing preserves ChatGPT default and keeps new profiles disconn
     claude: { enabled: false, platform: 'qq', connection: { state: 'stopped' }, configured: true, appId: 'claude-qq' },
     gemini: { enabled: false, platform: 'qq', connection: { state: 'stopped' }, configured: true, appId: 'gemini-qq' },
     qwen: { enabled: false, platform: 'qq', connection: { state: 'stopped' }, configured: true, appId: 'qwen-qq' },
+    hark: { enabled: false, platform: 'qq', connection: { state: 'stopped' }, configured: true, appId: 'hark-qq' },
   });
   assert.doesNotMatch(JSON.stringify(status), /private|appSecret/);
   assert.equal((await f.router.request('/v1/status', { assistant: 'claude' })).enabled, false);
@@ -194,6 +195,22 @@ test('trusted assistant URLs reject credentials, lookalike hosts, cross-provider
   assert.equal(conversationUrl('https://claude.ai/chat/conversation-one'), null);
 });
 
+test('Hark accepts only signed-in conversation routes on app.hark.com and rejects entry, auth and settings pages', () => {
+  assert.equal(assistantId('hark'), 'hark');
+  assert.equal(assistantForUrl('https://app.hark.com/login'), 'hark');
+  // The marketing site is never a bindable assistant page.
+  assert.equal(assistantForUrl('https://hark.com/'), null);
+  assert.equal(conversationUrl('https://app.hark.com/chat/conversation-one/?x=1#part', 'hark'), 'https://app.hark.com/chat/conversation-one');
+  assert.equal(conversationUrl('https://app.hark.com/project/project-one/message-one', 'hark'), 'https://app.hark.com/project/project-one/message-one');
+  assert.equal(conversationUrl('https://app.hark.com/room/room-one', 'hark'), 'https://app.hark.com/room/room-one');
+  for (const path of ['/', '/login', '/chat', '/chat/short', '/projects', '/projects/new', '/rooms', '/settings', '/settings/billing', '/plans', '/profile', '/soul', '/connect', '/docs/realtime', '/verify-age']) {
+    assert.equal(conversationUrl('https://app.hark.com' + path, 'hark'), null, path);
+  }
+  assert.equal(conversationUrl('https://hark.com/chat/conversation-one', 'hark'), null);
+  assert.equal(conversationUrl('https://app.hark.com/chat/conversation-one', 'chatgpt'), null);
+  for (const value of ['https://app.hark.com.evil.test/chat/conversation-one', 'https://user@app.hark.com/chat/conversation-one', 'http://app.hark.com/chat/conversation-one', 'https://app.hark.com:444/chat/conversation-one']) assert.equal(assistantForUrl(value), null);
+});
+
 test('Gemini accepts only existing canonical conversations on its exact HTTPS origin, including account-scoped URLs', () => {
   assert.equal(assistantId('gemini'), 'gemini');
   assert.equal(assistantForUrl('https://gemini.google.com/app'), 'gemini');
@@ -238,7 +255,7 @@ for (const [platform, Store, chatId] of [['qq', QQStore, 'QQ_TEST_GROUP'], ['fei
   test(`${platform} ${assistant} moderation notices identify the correct assistant`, async () => {
     const store = await Store.open({ storage: new MemoryStorage(), assistant, moderate: () => ({ blocked: true, reason: 'keyword' }) });
     await store.ingest({ messageId: 'blocked-message', chatId, text: 'blocked text', createdAt: Date.now() });
-    const reply = await store.nextReply(); assert.match(reply.text, new RegExp(assistant === 'qwen' ? 'Qwen' : assistant === 'gemini' ? 'Gemini' : 'Claude')); assert.doesNotMatch(reply.text, /ChatGPT/);
+    const reply = await store.nextReply(); assert.match(reply.text, new RegExp({ qwen: 'Qwen', gemini: 'Gemini', hark: 'Hark' }[assistant] || 'Claude')); assert.doesNotMatch(reply.text, /ChatGPT/);
   });
 }
 
@@ -247,7 +264,7 @@ test('standalone store defaults preserve legacy storage names and keep new Gemin
   IndexedDBStorage.open = async name => { names.push(name); return new MemoryStorage(); };
   try {
     for (const Store of [QQStore, FeishuStore]) for (const assistant of ASSISTANTS) await Store.open({ assistant });
-    assert.deepEqual(names, [undefined, 'chatgpt-bot-bridge-claude-qq', 'chatgpt-bot-bridge-gemini-qq', 'chatgpt-bot-bridge-qwen-qq', undefined, 'chatgpt-bot-bridge-claude-feishu', 'chatgpt-bot-bridge-gemini-feishu', 'chatgpt-bot-bridge-qwen-feishu']);
+    assert.deepEqual(names, [undefined, 'chatgpt-bot-bridge-claude-qq', 'chatgpt-bot-bridge-gemini-qq', 'chatgpt-bot-bridge-qwen-qq', 'chatgpt-bot-bridge-hark-qq', undefined, 'chatgpt-bot-bridge-claude-feishu', 'chatgpt-bot-bridge-gemini-feishu', 'chatgpt-bot-bridge-qwen-feishu', 'chatgpt-bot-bridge-hark-feishu']);
   } finally { IndexedDBStorage.open = original; }
 });
 
@@ -257,12 +274,12 @@ for (const selected of ['qq', 'feishu']) {
     for (const assistant of ASSISTANTS) {
       const engines = {}; profiles[assistant] = {};
       for (const [platform, Store, Engine] of [['qq', QQStore, QQEngine], ['feishu', FeishuStore, FeishuEngine]]) {
-        let saved = { appId: platform === 'qq' ? ({ chatgpt: '123456789', claude: '987654321', gemini: '111222333', qwen: '444555666' })[assistant] : `cli_${assistant}`, appSecret: `${assistant}-${platform}-test-secret` };
+        let saved = { appId: platform === 'qq' ? ({ chatgpt: '123456789', claude: '987654321', gemini: '111222333', qwen: '444555666', hark: '777888999' })[assistant] : `cli_${assistant}`, appSecret: `${assistant}-${platform}-test-secret` };
         let filter = createWordFilter(['initial blocked']);
         const store = await Store.open({ storage: new MemoryStorage(), assistant, moderate: prompt => filter(prompt) });
         const profile = { callbacks: [], saved: () => saved, caller: {
           chatId: platform === 'qq' ? 'QQ_SAME_GROUP' : 'oc_same_group', browserId: 'browser', tabId: 8 + ASSISTANTS.indexOf(assistant),
-          conversationUrl: ({ chatgpt: 'https://chatgpt.com/c/independent-conversation', claude: 'https://claude.ai/chat/independent-conversation', gemini: 'https://gemini.google.com/app/independent-conversation', qwen: 'https://chat.qwen.ai/c/independent-conversation' })[assistant], capabilities: ['image-input-v1'],
+          conversationUrl: ({ chatgpt: 'https://chatgpt.com/c/independent-conversation', claude: 'https://claude.ai/chat/independent-conversation', gemini: 'https://gemini.google.com/app/independent-conversation', qwen: 'https://chat.qwen.ai/c/independent-conversation', hark: 'https://app.hark.com/chat/independent-conversation' })[assistant], capabilities: ['image-input-v1'],
         } };
         engines[platform] = new Engine({ store, readConfig: async () => saved, writeConfig: async value => { saved = structuredClone(value); },
           defaultWords: ['initial blocked'], setWords: words => { filter = createWordFilter(words); },
@@ -299,10 +316,10 @@ for (const selected of ['qq', 'feishu']) {
       await router.request(`/v1/jobs/${job.id}/result`, { ...auth, text: `${assistant} final answer` });
     }
     const slow = (async () => { for (let i = 0; i < 6; i++) await router.tick('chatgpt'); })(); await entered.promise;
-    for (const assistant of ['claude', 'gemini', 'qwen']) for (let i = 0; i < 6; i++) await router.tick(assistant);
+    for (const assistant of ['claude', 'gemini', 'qwen', 'hark']) for (let i = 0; i < 6; i++) await router.tick(assistant);
     assert.equal((await router.request('/v1/status', { assistant: 'claude' })).jobs[0].state, 'completed');
     assert.ok((await routers.chatgpt.engines[selected].store.status()).delivery.length > 0);
-    assert.equal(outgoing.length, 4);
+    assert.equal(outgoing.length, 5);
     for (const assistant of ASSISTANTS) {
       const reply = JSON.stringify(outgoing.find(item => item.assistant === assistant).args);
       assert.match(reply, new RegExp(`${assistant} final answer`)); assert.doesNotMatch(reply, /misdirected result/);
@@ -345,14 +362,14 @@ test('engine bootstrap retains legacy settings and databases, isolates three pro
   });
   vm.runInContext(source + '\nglobalThis.bootstrap = ready;', context);
   const router = await context.bootstrap;
-  assert.deepEqual(names, ['chatgpt-bot-bridge-qq', 'chatgpt-bot-bridge-feishu', 'chatgpt-bot-bridge-claude-qq', 'chatgpt-bot-bridge-claude-feishu', 'chatgpt-bot-bridge-gemini-qq', 'chatgpt-bot-bridge-gemini-feishu', 'chatgpt-bot-bridge-qwen-qq', 'chatgpt-bot-bridge-qwen-feishu']);
+  assert.deepEqual(names, ['chatgpt-bot-bridge-qq', 'chatgpt-bot-bridge-feishu', 'chatgpt-bot-bridge-claude-qq', 'chatgpt-bot-bridge-claude-feishu', 'chatgpt-bot-bridge-gemini-qq', 'chatgpt-bot-bridge-gemini-feishu', 'chatgpt-bot-bridge-qwen-qq', 'chatgpt-bot-bridge-qwen-feishu', 'chatgpt-bot-bridge-hark-qq', 'chatgpt-bot-bridge-hark-feishu']);
   assert.equal(router.routers.chatgpt.activePlatform, 'feishu'); assert.equal(router.routers.chatgpt.enabled, true); assert.equal(router.routers.claude.enabled, false);
   assert.deepEqual(router.routers.chatgpt.engines.feishu.config.words, ['飞书旧词表', 'new preset']);
   assert.equal(router.routers.claude.engines.qq.store.assistant, 'claude');
   assert.deepEqual(router.routers.claude.engines.qq.config.words, ['Claude旧词表', 'new preset']);
   assert.equal(router.routers.gemini.enabled, false); assert.equal(router.routers.gemini.engines.qq.store.assistant, 'gemini');
   assert.equal(adapters.length, 1); assert.equal(adapters[0].options.assistant, 'chatgpt');
-  assert.deepEqual(pumps.map(pump => pump.starts), [1, 1, 1, 1, 1, 1, 1, 1]);
+  assert.deepEqual(pumps.map(pump => pump.starts), [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
   const previousWakes = pumps.map(pump => pump.wakes);
   router.routers.chatgpt.engines.feishu.onWork();
   assert.equal(pumps[0].wakes, previousWakes[0]); assert.equal(pumps[1].wakes, previousWakes[1] + 1);

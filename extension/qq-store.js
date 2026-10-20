@@ -42,7 +42,7 @@ function identity(input, assistant) {
   const browserId = text(input.browserId, '浏览器标识', 100);
   if (!Number.isSafeInteger(input.tabId) || input.tabId < 0) throw new BridgeError('标签页 ID 无效');
   const url = conversationUrl(input.conversationUrl, assistant);
-  if (!url) throw new BridgeError(`请绑定已经创建的 ${({ chatgpt: 'chatgpt.com/c/…', claude: 'claude.ai/chat/…', gemini: 'gemini.google.com/app/…', qwen: 'chat.qwen.ai/c/…' })[assistant]} 对话，不能绑定首页或其他助手页面`);
+  if (!url) throw new BridgeError(`请绑定已经创建的 ${({ chatgpt: 'chatgpt.com/c/…', claude: 'claude.ai/chat/…', gemini: 'gemini.google.com/app/…', qwen: 'chat.qwen.ai/c/…', hark: 'app.hark.com/chat/…' })[assistant]} 对话，不能绑定首页或其他助手页面`);
   return { browserId, tabId: input.tabId, conversationUrl: url };
 }
 function sameIdentity(a, b) { return !!a && !!b && a.browserId === b.browserId && a.tabId === b.tabId && a.conversationUrl === b.conversationUrl; }

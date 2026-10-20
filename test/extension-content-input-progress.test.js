@@ -10,8 +10,9 @@ const source = (await readFile(new URL('../extension/content.js', import.meta.ur
   .replace("await import(chrome.runtime.getURL('claude-dom.js'))", 'globalThis.__testAdapter')
   .replace("await import(chrome.runtime.getURL('gemini-dom.js'))", 'globalThis.__testAdapter')
   .replace("await import(chrome.runtime.getURL('qwen-dom.js'))", 'globalThis.__testAdapter')
+  .replace("await import(chrome.runtime.getURL('hark-dom.js'))", 'globalThis.__testAdapter')
   .replace("await import(chrome.runtime.getURL('shared.js'))", 'globalThis.__testShared');
-const urls = { qwen: 'https://chat.qwen.ai/c/input-progress-fixture', chatgpt: 'https://chatgpt.com/c/input-progress-fixture', claude: 'https://claude.ai/chat/input-progress-fixture', gemini: 'https://gemini.google.com/app/input-progress-fixture' };
+const urls = { qwen: 'https://chat.qwen.ai/c/input-progress-fixture', chatgpt: 'https://chatgpt.com/c/input-progress-fixture', claude: 'https://claude.ai/chat/input-progress-fixture', gemini: 'https://gemini.google.com/app/input-progress-fixture', hark: 'https://app.hark.com/chat/input-progress-fixture' };
 const flush = () => new Promise(resolve => setImmediate(resolve));
 const metadata = { id: '1'.repeat(64), mimeType: 'image/png', name: 'source.png', bytes: 11 };
 const image = { imageId: metadata.id, mimeType: metadata.mimeType, name: metadata.name, base64: 'iVBORw0KGgoBAgM=' };
@@ -19,7 +20,7 @@ const image = { imageId: metadata.id, mimeType: metadata.mimeType, name: metadat
 // This fixture isolates the shared input orchestration from each provider's
 // separately tested upload implementation. Attachment readiness is controlled
 // explicitly so progress must track actual validation, not elapsed time.
-async function fixture(assistant, { native = ['claude', 'qwen'].includes(assistant), failAttach = false } = {}) {
+async function fixture(assistant, { native = ['claude', 'qwen', 'hark'].includes(assistant), failAttach = false } = {}) {
   const page = new JSDOM('<main></main><div contenteditable="true"></div><button>Send</button>', { url: urls[assistant], runScripts: 'outside-only', pretendToBeVisual: true });
   const win = page.window; const doc = win.document; const input = doc.querySelector('[contenteditable]'); const button = doc.querySelector('button');
   const messages = []; const statuses = []; const calls = []; const timers = new Map();
@@ -94,7 +95,7 @@ for (const assistant of shared.ASSISTANTS) {
     try {
       assert.match(x.badge, /正在读取群消息图片 1\/1$/); assert.equal(x.calls.length, 0); assert.equal(x.clicks, 0);
       await x.releaseImage();
-      assert.deepEqual(x.calls.map(call => call.route), [['claude', 'qwen'].includes(assistant) ? 'native' : 'paste']);
+      assert.deepEqual(x.calls.map(call => call.route), [['claude', 'qwen', 'hark'].includes(assistant) ? 'native' : 'paste']);
       assert.ok(x.calls[0].badge.endsWith(`正在向 ${label} 添加图片 1/1`));
       assert.ok(x.badge.endsWith(`等待 ${label} 确认图片 1/1：等待附件出现`));
       const unchanged = x.statuses.length; await x.advance(400); assert.equal(x.statuses.length, unchanged, 'unchanged verification reason must not rewrite the badge');

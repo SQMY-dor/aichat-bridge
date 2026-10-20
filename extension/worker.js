@@ -227,7 +227,7 @@ async function deliver(job) {
 function validateContentSender(sender) {
   if (sender.id !== chrome.runtime.id || !sender.tab || sender.frameId !== 0 || !Number.isInteger(sender.tab.id) || sender.tab.id < 0) throw new Error('拒绝非页面主框架请求');
   const assistant = assistantForUrl(sender.url);
-  if (!assistant || (sender.origin !== undefined && sender.origin !== new URL(sender.url).origin)) throw new Error('拒绝非 ChatGPT / Claude / Gemini / Qwen 页面来源请求');
+  if (!assistant || (sender.origin !== undefined && sender.origin !== new URL(sender.url).origin)) throw new Error('拒绝非 ChatGPT / Claude / Gemini / Qwen / Hark 页面来源请求');
   return assistant;
 }
 async function liveAssistantTab(sender) {

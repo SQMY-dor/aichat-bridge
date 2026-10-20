@@ -1,14 +1,16 @@
 # AIChat桥接
 
-将 QQ / 飞书群中的 **@ 机器人消息**发送到已登录的 **ChatGPT、Claude、Gemini、海外版 Qwen 网页**，再把该轮回复传回原群。
+将 QQ / 飞书群中的 **@ 机器人消息**发送到已登录的 **ChatGPT、Claude、Gemini、海外版 Qwen、Hark 网页**，再把该轮回复传回原群。
 
-**当前版本：0.1.6 · Chrome 120+ · Manifest V3**
+**当前版本：0.2.0 · Chrome 120+ · Manifest V3**
+
+0.2.0 新增 Hark（Hark Pro 网页端 app.hark.com）作为第五个助手。Hark 适配器已接入扩展的完整链路（来源校验、URL 规则、适配器加载、设置页、测试夹具），但**登录后的对话 DOM 尚未标定**：在 extension/hark-dom.js 的 SELECTORS 换成实测值之前，Hark 通道只会停在“结构尚未标定”并拒绝提交，不会误点按钮。标定步骤与 Linux 常驻部署分别见 docs/hark-integration.md 与 deploy/README.md。
 
 0.1.6 兼容 Claude 当前网页的新回复结构：操作栏位于回复容器内部、复制按钮不再带旧标识、正文改用 transcript-engine 容器。修正由此造成的“上一条 Claude 网页提问尚未明确完成”阻塞及正文提取失败，保留生成状态、消息归属和操作栏边界校验。
 
 0.1.5 修正 Qwen 和 Gemini 的完成检测：已经完成的回复，其操作栏仅因 `visibility:hidden` 隐藏时，不再依赖悬停或切回页签才回传。仍需本次消息归属、正文及完成标记全部通过校验；没有修改输入或发送动作。若网站自身暂停渲染，或 Chrome 冻结页面，扩展仍无法读取尚未出现在 DOM 中的答案。Gemini 间歇性发送失败、页面自行返回首页，以及 GPT 的 `cloudflare_challenge` 根因仍未确定，本次更新不代表这些问题已修复。
 
-这是一个纯 Chrome 扩展，使用现有网页会话。日常运行不需要 Node.js、本机服务、模型 API Key 或公网回调服务器；机器人由扩展直接连接 QQ / 飞书官方接口。
+这是一个纯 Chrome 扩展，使用现有网页会话。日常运行不需要 Node.js、本机服务、模型 API Key 或公网回调服务器；机器人由扩展直接连接 QQ / 飞书官方接口。需要长期无人值守运行时，可以在 Linux 上用 Xvfb + 有头 Chromium 常驻加载本扩展，见 deploy/README.md。
 
 ## 功能
 
@@ -74,6 +76,7 @@
 | Claude | `https://claude.ai/chat/…` |
 | Gemini | `https://gemini.google.com/app/…` 或 `https://gemini.google.com/u/<数字>/app/…` |
 | Qwen 海外版 | `https://chat.qwen.ai/c/…` |
+| Hark（Hark Pro） | `https://app.hark.com/chat/…`、`/project/<项目>/<消息>` 或 `/room/…`；需先登录，入口页与 `/settings` 等不能绑定 |
 
 首页、分享页、国内版 Qwen 和其他网站不能绑定。一个群使用一个专用对话和标签页，群成员会共享该对话上下文。任务运行期间请勿手动编辑输入框、发送其他消息或切换会话，避免消息归属不清导致任务停止。
 
