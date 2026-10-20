@@ -8,7 +8,9 @@
   },
   "scripts": {
     "test": "node --test test/*.test.js",
-    "check": "node scripts/check.js"
+    "check": "node scripts/check.js",
+    "probe:hark": "node scripts/hark-dom-probe.js --port 9222 --url-prefix app.hark.com --out /tmp/hark-thread.json --timeout 40000 --settle 8000",
+    "calibrate:hark": "node scripts/hark-calibrate.js /tmp/hark-thread.json"
   },
   "devDependencies": {
     "@napi-rs/canvas": "^1.0.11",
