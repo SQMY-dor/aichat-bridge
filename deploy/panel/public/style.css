@@ -14,6 +14,10 @@
   :root { --bg: #f5f7fa; --panel: #fff; --line: #e2e8f0; --text: #1a202c; --muted: #64748b; }
 }
 * { box-sizing: border-box; }
+/* .login 设了 display: flex，特异性高于浏览器内置的 [hidden] { display: none }，
+   导致 hidden 属性能写进去但元素仍然可见（登录后登录框全屏盖住面板）。
+   这里显式兜底，凡是带 hidden 的元素一律不渲染。 */
+[hidden] { display: none !important; }
 body {
   margin: 0; background: var(--bg); color: var(--text);
   font: 14px/1.55 system-ui, -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
