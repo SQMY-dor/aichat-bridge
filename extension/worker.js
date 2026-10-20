@@ -330,7 +330,9 @@ async function content(message, sender) {
         let platform = state.platform;
         if (hasChannelRouting(state)) {
           const candidates = Object.entries(state.platforms).filter(([id, channel]) => validPlatform(id) && channel.enabled &&
-            channel.groups.some(group => group.binding?.browserId === cfg.browserId && group.binding.tabId === tab.id && conversationUrl(group.binding.conversationUrl, assistant) === url));
+            // 按会话地址匹配，不按 tabId：浏览器重启后标签页 ID 会变，
+            // 但会话地址不变，绑定应当继续有效。
+            channel.groups.some(group => group.binding?.browserId === cfg.browserId && conversationUrl(group.binding.conversationUrl, assistant) === url));
           if (candidates.length > 1) throw new Error('同一网页绑定了多个通道，请修复绑定后重试');
           if (!candidates.length) return { job: null };
           platform = candidates[0][0];

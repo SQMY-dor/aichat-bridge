@@ -45,7 +45,15 @@ function identity(input, assistant) {
   if (!url) throw new BridgeError(`请绑定已经创建的 ${({ chatgpt: 'chatgpt.com/c/…', claude: 'claude.ai/chat/…', gemini: 'gemini.google.com/app/…', qwen: 'chat.qwen.ai/c/…', hark: 'app.hark.com/chat/…' })[assistant]} 对话，不能绑定首页或其他助手页面`);
   return { browserId, tabId: input.tabId, conversationUrl: url };
 }
-function sameIdentity(a, b) { return !!a && !!b && a.browserId === b.browserId && a.tabId === b.tabId && a.conversationUrl === b.conversationUrl; }
+// 绑定身份判定（用于 bind / poll：这个群对应哪段对话）：同一浏览器 +
+// 同一会话地址即视为同一绑定。刻意不比较 tabId —— 浏览器重启后标签页 ID
+// 会变，旧实现导致绑定每次重启失效、必须手动重绑。conversationUrl 已经
+// 规范化，足以区分不同对话。
+function sameBinding(a, b) { return !!a && !!b && a.browserId === b.browserId && a.conversationUrl === b.conversationUrl; }
+// 租约身份判定（用于 started / result 等提交动作）：必须连 tabId 一起比对。
+// 绑定可以跨重启继承，但一次已经开始的提交只能由当初那个标签页完成，
+// 否则另一个绑定了同一对话的标签页就能顶替它提交/回传。
+function sameIdentity(a, b) { return sameBinding(a, b) && a.tabId === b.tabId; }
 function randomHex(bytes) { return [...crypto.getRandomValues(new Uint8Array(bytes))].map(value => value.toString(16).padStart(2, '0')).join(''); }
 function mediaKey(kind, jobId, imageId) {
   if (!['input', 'output'].includes(kind) || !/^[a-f0-9-]{36}$/.test(jobId) || !/^[a-f0-9]{64}$/.test(imageId)) throw new BridgeError('扩展图片标识无效');
@@ -304,7 +312,7 @@ export class BridgeStore {
 
   async poll(input) {
     const caller = identity(input, this.assistant);
-    const group = Object.values(this.data.groups).find(g => sameIdentity(g.binding, caller));
+    const group = Object.values(this.data.groups).find(g => sameBinding(g.binding, caller));
     if (!group) return { job: null };
     await this.blockQueuedJobs(group.chatId);
     if (this.data.jobs.some(j => j.chatId === group.chatId && ['leased', 'running'].includes(j.state))) return { job: null };

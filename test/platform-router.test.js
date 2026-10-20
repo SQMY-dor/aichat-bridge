@@ -149,14 +149,30 @@ test('changing configuration view keeps pumping and queued writes retain their e
   assert.equal(f.qq.engine.enabled, true); assert.equal(f.feishu.engine.enabled, false);
 });
 
-test('platforms cannot bind the same conversation through different paths or reuse a browser tab', async () => {
+test('platforms cannot bind the same conversation through different paths', async () => {
   const f = await mocked(); const original = { browserId: 'browser', tabId: 5, conversationUrl: 'https://chatgpt.com/c/conversation-one' };
   f.feishu.state.groups.push({ binding: original });
+  // 同一对话的等价写法（换了标签页、或用了 /g/... 前缀路径）仍视为同一个对话。
   for (const binding of [original,
     { ...original, tabId: 6, conversationUrl: 'https://chatgpt.com/g/custom/c/conversation-one/' },
-    { ...original, conversationUrl: 'https://chatgpt.com/c/conversation-two' },
   ]) await assert.rejects(f.router.request('/v1/bind', { platform: 'qq', chatId: 'QQ_GROUP', ...binding }), error => error.status === 409);
+  // 换成另一个对话就允许：这正是重启后标签页 ID 变化时需要的行为。
   await f.router.request('/v1/bind', { platform: 'qq', chatId: 'QQ_GROUP', ...original, tabId: 6, conversationUrl: 'https://chatgpt.com/c/conversation-two' });
+  assert.equal(f.qq.calls.filter(call => call[0] === 'request').length, 1);
+});
+
+test('a conversation rebound to another group survives a tab id change', async () => {
+  const f = await mocked();
+  // 同一浏览器、同一会话，标签页 ID 从 5 变成 77（浏览器重启后的真实情形）。
+  const bound = { browserId: 'browser', tabId: 5, conversationUrl: 'https://chatgpt.com/c/conversation-one' };
+  f.feishu.state.groups.push({ binding: bound });
+  // 判重只看会话地址：新 tabId 不应被视为冲突。
+  await assert.rejects(
+    f.router.request('/v1/bind', { platform: 'qq', chatId: 'QQ_GROUP', ...bound, tabId: 77 }),
+    error => error.status === 409,
+  );
+  // 换个对话则放行，且新绑定记录的是新 tabId。
+  await f.router.request('/v1/bind', { platform: 'qq', chatId: 'QQ_GROUP', ...bound, tabId: 77, conversationUrl: 'https://chatgpt.com/c/conversation-two' });
   assert.equal(f.qq.calls.filter(call => call[0] === 'request').length, 1);
 });
 

@@ -115,7 +115,9 @@ export class PlatformRouter {
       for (const other of PLATFORMS.filter(id => id !== platform)) {
         const status = await this.engines[other].store.status();
         if (status.groups.some(group => group.binding &&
-          (sameConversation(group.binding.conversationUrl, input.conversationUrl) || group.binding.browserId === input.browserId && group.binding.tabId === input.tabId))) {
+          // 只按会话地址判重：不同群不能绑同一个对话。
+          // 同一对话换标签页（重启后）仍是同一个对话，不该被当成新绑定拦下。
+          sameConversation(group.binding.conversationUrl, input.conversationUrl))) {
           throw fault('这个对话或标签页已经绑定另一平台，请为 QQ 和飞书分别使用独立的助手对话与标签页', 409);
         }
       }
