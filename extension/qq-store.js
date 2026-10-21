@@ -18,7 +18,16 @@ export const IMAGE_TOTAL_BYTES = 30_000_000;
 export const IMAGE_MAX_COUNT = 4;
 const ACTIVE = new Set(['queued', 'leased', 'running']);
 const DAY = 86_400_000;
-const GENERATION_TIMEOUT = 4 * 60_000;
+// Hark 一次生成可能很久（长回答、排队）。原先把生成时限绑在 QQ 的 5 分钟
+// 回复窗口上，导致「网页还在写，QQ 窗口已经过了」而白等一场。
+// 现在的取舍：
+//   deadline        —— 网页侧愿意等待多久（下面这个值），等的是"有回复"，
+//                      不再受 QQ 窗口约束；到点才放弃。
+//   replyExpiresAt  —— QQ 平台给的硬窗口，只在真正投递时使用。
+//      拿到答案时若窗口还在 → 立刻发；
+//      窗口已过 → 不静默丢弃，任务记为"答案已拿到但窗口已过"，
+//                 面板里能看到完整答案，并提示用户回群重新 @。
+const GENERATION_TIMEOUT = 30 * 60_000;
 const RETRY_WINDOW = REPLY_WINDOW_MS;
 const TYPES = Object.freeze({ 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' });
 const PUBLIC_METHODS = ['clearHistory', 'ingest', 'cancel', 'poll', 'started', 'inputImage', 'image', 'result', 'error', 'bind', 'unbind', 'status', 'nextReply', 'replySent', 'replyFailed', 'nextInputImage', 'inputImageDownloaded', 'inputImageFailed', 'imageBuffer', 'imageUploaded', 'imageReplyRejected', 'postReplyRejected', 'sweep', 'recover', 'replyRejected', 'deliveryStarted'];
@@ -271,7 +280,9 @@ export class BridgeStore {
         if (message.unsupportedReason === 'reference_image_unavailable') return reject('QQ 没有提供可读取的引用图片，或该附件格式不受支持。请把图片重新附在本次 @ 提问里；支持 PNG、JPEG 和 WebP。');
         return reject('这条消息包含不支持的附件；请只发送文字以及 PNG、JPEG 或 WebP 图片。');
       }
-      if (state.receipts[id].expiresAt - DELIVERY_RESERVE_MS <= this.now()) return reject('这条消息接近 QQ 的 5 分钟回复期限，请重新 @机器人 提问。');
+      // 仍然要拒绝"消息本身已经太旧"的情况：如果连 5 分钟窗口都不剩，
+      // 就算网页秒回也发不出去，不如立刻说清楚。
+      if (state.receipts[id].expiresAt - DELIVERY_RESERVE_MS <= this.now()) return reject('这条消息已经接近 QQ 的 5 分钟回复期限，请重新 @机器人 提问。');
       const images = message.images ?? [];
       if (!Array.isArray(images) || images.length > IMAGE_MAX_COUNT) return reject('每条问题最多包含 4 张图片，请分成多条消息发送。');
       if (images.some(image => !image || typeof image.imageKey !== 'string' || image.imageKey.length > 8192 || !image.imageKey.startsWith('https://'))) return reject(`这条消息的图片标识无效，未向 ${this.assistantName} 发送问题，请重新发送图片。`);
@@ -286,7 +297,8 @@ export class BridgeStore {
       if (pending.length >= 100 || pending.filter(j => j.chatId === chat).length >= 20) return reject('当前排队消息较多，请稍后再发送。');
       const job = {
         id: crypto.randomUUID(), messageId: id, chatId: chat, prompt, state: 'queued',
-        createdAt: this.now(), replyExpiresAt: state.receipts[id].expiresAt, deadline: state.receipts[id].expiresAt - DELIVERY_RESERVE_MS,
+        // deadline 只约束网页生成，不再等于 QQ 窗口。
+        createdAt: this.now(), replyExpiresAt: state.receipts[id].expiresAt, deadline: this.now() + GENERATION_TIMEOUT,
         binding: structuredClone(group.binding), replyStyle,
         ...(imageKeys.length ? { imageRefs: imageKeys.map(imageKey => ({ imageKey, attempts: 0, nextAttemptAt: this.now() })), inputImages: [] } : {}),
       };
@@ -442,9 +454,20 @@ export class BridgeStore {
       const uploads = job.uploads ?? [];
       if (imageIds.length !== uploads.length || imageIds.some((imageId, index) => uploads[index]?.id !== imageId)) throw new BridgeError('回复图片与本次已上传图片不一致', 409);
       const context = state.receipts[job.messageId];
-      if (!context || context.nextSeq + posts.length + uploads.length - 1 > 5) throw new BridgeError('QQ 被动回复额度不足，未发送不完整答案', 409);
+      // QQ 的被动回复窗口（平台强制，5 分钟）可能已经过去：此时答案仍然有效，
+      // 只是发不回群。绝不能静默丢弃——把答案完整留在任务里，
+      // 标成 expired-window，面板可读，并提示用户回群重新 @。
+      const windowOpen = Boolean(context) && this.now() < context.expiresAt;
       job.state = 'completed'; job.finishedAt = this.now(); delete job.prompt; delete job.imageRefs; delete job.inputImages;
       job.timing = resultTiming(input.timing);
+      if (!windowOpen) {
+        job.answerText = input.text.trim();
+        job.images = imageIds.length ? imageIds.length : undefined;
+        job.answerDelivery = { state: 'expired-window', posts: 0, images: 0, sentPosts: 0, sentImages: 0, failed: false, reason: 'QQ 被动回复窗口已过，答案未发回群' };
+        job.notice = 'Hark 已回复，但 QQ 的 5 分钟被动回复窗口已过，答案无法再发回群里。完整答案可在管理面板查看；需要群里可见请重新 @机器人 提问。';
+        return { ok: true, delivered: false, reason: 'expired-window' };
+      }
+      if (!context || context.nextSeq + posts.length + uploads.length - 1 > 5) throw new BridgeError('QQ 被动回复额度不足，未发送不完整答案', 409);
       job.answerDelivery = { state: 'pending', posts: posts.length, images: uploads.length, sentPosts: 0, sentImages: 0, failed: false };
       posts.forEach((post, index) => state.outbox.push({
         id: `${job.id}:post:${index}`, kind: 'post', jobId: job.id,
@@ -666,10 +689,17 @@ export class BridgeStore {
       activeJobCount: this.data.jobs.filter(job => ACTIVE.has(job.state)).length,
       queuedChatIds: [...new Set(this.data.jobs.filter(job => job.state === 'queued').map(job => job.chatId))],
       groups: Object.values(this.data.groups).map(g => ({ ...g, binding: g.binding ? { conversationUrl: g.binding.conversationUrl, browserId: g.binding.browserId, tabId: g.binding.tabId } : undefined })),
-      jobs: visibleJobs.map(({ id, chatId, state, createdAt, startedAt, error, answerDelivery, timing, finishedAt }) => {
+      jobs: visibleJobs.map(({ id, chatId, state, createdAt, startedAt, error, answerDelivery, timing, finishedAt, answerText, notice }) => {
         const delivery = answerDelivery;
         const end = Number.isFinite(delivery?.finishedAt) ? delivery.finishedAt : delivery?.state === 'pending' ? this.now() : undefined;
-        return { id, chatId, state: delivery?.state === 'pending' ? 'delivering' : delivery?.state === 'failed' ? 'failed' : state, createdAt, error,
+        // 任务本身仍是 completed（答案有效），"没发回群"由 deliveryState 表达，
+        // 不要把它混进 state，否则调用方会误以为任务失败。
+        return { id, chatId, state: delivery?.state === 'pending' ? 'delivering' : delivery?.state === 'failed' ? 'failed' : state,
+          createdAt, error,
+          ...(delivery?.state === 'expired-window' ? { deliveryState: 'expired-window' } : {}),
+          // 窗口已过时答案仍然有效：必须让面板看得到，否则等于丢失。
+          ...(typeof answerText === 'string' && answerText ? { answerText: answerText.slice(0, 20000) } : {}),
+          ...(typeof notice === 'string' && notice ? { notice } : {}),
           ...(delivery || Number.isFinite(startedAt) ? { timing: { ...timing,
             ...(Number.isFinite(startedAt) && Number.isFinite(createdAt) ? { handoffMs: Math.max(0, startedAt - createdAt) } : {}),
             ...(Number.isFinite(delivery?.startedAt ?? end) && Number.isFinite(finishedAt) ? { queueMs: Math.max(0, (delivery.startedAt ?? end) - finishedAt) } : {}),

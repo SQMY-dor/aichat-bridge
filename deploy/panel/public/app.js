@@ -254,6 +254,18 @@ function renderJobs(status) {
     detail.append(el('strong', job.chatId));
     detail.append(el('p', job.error || ('任务 ' + job.id)));
     detail.append(el('small', new Date(job.createdAt).toLocaleString()));
+    if (job.notice) detail.append(el('small', job.notice));
+    if (job.answerText) {
+      const answer = el('details');
+      answer.append(el('summary', '查看 Hark 的完整答案'));
+      const body = el('pre', job.answerText);
+      body.style.whiteSpace = 'pre-wrap';
+      body.style.fontSize = '12px';
+      body.style.maxHeight = '320px';
+      body.style.overflow = 'auto';
+      answer.append(body);
+      detail.append(answer);
+    }
     if (job.timing) {
       const timing = Object.entries({
         handoffMs: '收到→网页接手', inputPreparationMs: '输入准备', confirmationMs: '完成确认',
@@ -264,6 +276,12 @@ function renderJobs(status) {
     const actions = el('div', undefined, 'actions');
     const state = el('span', JOB_STATES[job.state] || job.state, 'state' + (job.state === 'failed' ? ' failed' : ''));
     actions.append(state);
+    // 答案已拿到但 QQ 窗口已过：任务算完成，但要明确标出来，并提供答案。
+    if (job.deliveryState === 'expired-window') {
+      const badge = el('span', '窗口已过·答案未发出', 'state failed');
+      actions.append(badge);
+      item.style.borderColor = 'var(--warn)';
+    }
     if (job.state === 'queued') {
       const cancel = el('button', '取消', 'danger');
       cancel.type = 'button';

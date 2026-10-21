@@ -49,14 +49,38 @@ test('QQ final text plus four images have exactly five stable sequences and no c
 });
 test('QQ reply window starts at original event timestamp, never extends on leasing/retry',async()=>{
  const f=await fixture();const sent=f.clock.now-60_000;await f.ingest('older',{createdAt:sent});
- const {job,auth}=await f.start();assert.ok(job.timeoutMs<=190_000);
+ const {job,auth}=await f.start();
+ // 网页侧可以等很久（不再等于 QQ 窗口），但真正投递用的 outbox 严格用原始消息时间戳。
+ assert.ok(job.timeoutMs>190_000,'生成等待不应再被 QQ 的 5 分钟窗口截断');
  await f.store.result(job.id,{...auth,text:'answer'});const item=await f.store.nextReply();assert.equal(item.expiresAt,sent+295_000);
- f.clock.now=sent+295_001;await f.store.sweep();assert.equal(await f.store.nextReply(),null);assert.equal((await f.store.status()).jobs[0].state,'failed');
+ f.clock.now=sent+295_001;await f.store.sweep();assert.equal(await f.store.nextReply(),null);
 });
-test('QQ queued generation expiry stops before the passive reply deadline',async()=>{
- const f=await fixture();await f.ingest();f.clock.now+=251_000;await f.store.sweep();assert.equal((await f.store.poll(caller)).job,null);
- const notice=await f.store.nextReply();assert.equal(notice.msgSeq,1);assert.match(notice.text,/超时/);
- f.clock.now+=45_000;await f.store.sweep();assert.equal(await f.store.nextReply(),null);
+test('a queued job keeps waiting for the web page past the QQ window instead of failing early',async()=>{
+ const f=await fixture();await f.ingest();
+ // 越过旧的 251 秒门槛：任务仍在等待网页，不应被判超时。
+ f.clock.now+=251_000;await f.store.sweep();
+ assert.equal((await f.store.status()).jobs[0].state,'queued','不应在 QQ 窗口到点时就放弃生成');
+ assert.equal(await f.store.nextReply(),null);
+ // 页面此时才来领取，应当拿到任务（窗口靠投递时再判断）。
+ const {job}=await f.start();assert.ok(job);
+});
+
+test('an answer that arrives after the QQ window is kept instead of silently dropped',async()=>{
+ const f=await fixture();await f.ingest();
+ const {job,auth}=await f.start();
+ // 页面写完了，但 QQ 的 5 分钟已过。
+ f.clock.now+=300_001;
+ let result;
+ try { result=await f.store.result(job.id,{...auth,text:'很久之后才写完的答案'}); }
+ catch (e) { console.log('RESULT THREW:', e.message); throw e; }
+ assert.equal(result.delivered,false);assert.equal(result.reason,'expired-window');
+ const status=await f.store.status();
+ const finished=status.jobs[0];
+ assert.equal(finished.state,'completed','答案有效，任务应完成而不是失败');
+ assert.equal(finished.answerText,'很久之后才写完的答案','完整答案必须保留下来');
+ assert.equal(finished.deliveryState,'expired-window');
+ assert.match(finished.notice,/5 分钟被动回复窗口已过/);
+ assert.equal(await f.store.nextReply(),null,'不应尝试向已关闭的窗口投递');
 });
 test('QQ four inbound images are all durable before one lease and original order is preserved',async()=>{
  const f=await fixture();await f.ingest('multi',{images:Array.from({length:4},(_,i)=>({imageKey:`https://multimedia.nt.qq.com.cn/download?id=${i}`}))});
